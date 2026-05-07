@@ -1,0 +1,19 @@
+1. Problems Data-Driven Repair => Question => Standard Pruning as a Baseline
+1.1 Hard to find libaries for yolo => most do Global pruning (https://github.com/VainF/Torch-Pruning/blob/master/examples/yolov8/yolov8_pruning.py)
+
+=> It works (comparison_conv4_conv5 0.1 - Repair (forward pass recalibration)_20260506_180606.png)
+- NOT good enoght ? (Anchorns ?)
+
+
+2.1 Data Driven Repair (PAGE 2.3 (40))
+ => EXPLAIN in Code (Forward Hook)
+=> Works NOT well (comparison_conv5_conv7 0.2 - All Folded Versions_20260507_205519.png (ONLY CONV)
+			comparison_conv4_conv5 0.1 - All Folded Versions_20260507_184054.png  (C2F)
+=> WHAT IS FALSE :(
+
+2.2 Forward Pass Repair 
+  => Works better ...
+  => All BN stats? They depend on each other 
+
+
+What do do next .. what could be the error :(
