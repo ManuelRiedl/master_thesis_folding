@@ -13,7 +13,5 @@
 
 2.2 Forward Pass Repair 
   => Works better ...
-  => All BN stats? They depend on each other 
-
-
+  => All BN stats? They depend on each other
 What do do next .. what could be the error :(

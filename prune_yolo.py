@@ -177,7 +177,7 @@ def repair_bn_forward_pass(
 
         bn_to_reset = {n: all_bn[n] for n in affected_bns}
     else:
-        # No config — reset all (only correct when entire model was pruned/folded)
+        # No config_folding — reset all (only correct when entire model was pruned/folded)
         bn_to_reset = all_bn
 
     if not bn_to_reset:
@@ -245,7 +245,7 @@ def collate_fn(batch):
 if __name__ == "__main__":
 
     MODEL_PATH  = "weights/yolov8m.pt"
-    JSON_CONFIG = "config/yolo_conv4_conv5.json"
+    JSON_CONFIG = "config_folding/yolo_conv4_conv5.json"
     BASE_SAVE   = "weights/yolo_conv4_conv5"
 
     COCO_IMGS   = "coco/images/val2017"

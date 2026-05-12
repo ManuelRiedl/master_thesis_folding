@@ -1,0 +1,56 @@
+{
+    "input": {
+        "pre": null,
+        "do_folding": false,
+        "num_channels": 3,
+        "consistent_map": null
+    },
+    "model.0.conv": {
+        "pre": "input",
+        "do_folding": true,
+        "num_channels": 48,
+        "consistent_map": null
+    },
+    "model.1.conv": {
+        "pre": "model.0.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": null
+    },
+    "model.2.cv1.conv": {
+        "pre": "model.1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": null
+    },
+    "model.2.m.0.cv1.conv": {
+        "pre": "model.2.cv1.conv",
+        "do_folding": true,
+        "num_channels": 48,
+        "consistent_map": "model.2.cv1.conv"
+    },
+    "model.2.m.0.cv2.conv": {
+        "pre": "model.2.cv1.conv",
+        "do_folding": true,
+        "num_channels": 48,
+        "consistent_map": "model.2.cv1.conv"
+    },
+    "model.2.m.1.cv1.conv": {
+        "pre": "model.2.cv1.conv",
+        "do_folding": true,
+        "num_channels": 48,
+        "consistent_map": "model.2.cv1.conv"
+    },
+    "model.2.m.1.cv2.conv": {
+        "pre": "model.2.cv1.conv",
+        "do_folding": true,
+        "num_channels": 48,
+        "consistent_map": "model.2.cv1.conv"
+    },
+    "model.2.cv2.conv": {
+        "pre": "model.2.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.2.cv1.conv"
+    }
+}

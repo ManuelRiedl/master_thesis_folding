@@ -1,0 +1,14 @@
+[
+  {
+    "config": "config_folding/yolo_conv5_conv7.json",
+    "pairing_rates": [0.1, 0.2, 0.3],
+    "calib_images": [1000, 5000, 20000],
+    "repair": [true]
+  },
+  {
+    "config": "config_folding/yolo_conv4_conv5.json",
+    "pairing_rates": [0.1, 0.2, 0.3],
+    "calib_images": [1000, 5000, 20000],
+    "repair": [true]
+  }
+]
