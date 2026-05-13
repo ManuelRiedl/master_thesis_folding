@@ -1,0 +1,155 @@
+MODELS_TO_COMPARE = [
+        # --- BASELINE ---
+        'weights/yolov8m.pt',
+
+        # --- PAIRING RATE 0.1 ---
+        'weights/without_repair/0.1/yolo_conv4_conv5_folded_without_repair.pt',
+        'weights/forward_pass_repair/0.1/yolo_conv4_conv5_folded_forward_pass_repair_calib1000.pt',
+        'weights/forward_pass_repair/0.1/yolo_conv4_conv5_folded_forward_pass_repair_calib5000.pt',
+        'weights/forward_pass_repair/0.1/yolo_conv4_conv5_folded_forward_pass_repair_calib20000.pt',
+
+        # --- PAIRING RATE 0.2 ---
+        'weights/without_repair/0.2/yolo_conv4_conv5_folded_without_repair.pt',
+        'weights/forward_pass_repair/0.2/yolo_conv4_conv5_folded_forward_pass_repair_calib1000.pt',
+        'weights/forward_pass_repair/0.2/yolo_conv4_conv5_folded_forward_pass_repair_calib5000.pt',
+        'weights/forward_pass_repair/0.2/yolo_conv4_conv5_folded_forward_pass_repair_calib20000.pt',
+
+        # --- PAIRING RATE 0.3 ---
+        'weights/without_repair/0.3/yolo_conv4_conv5_folded_without_repair.pt',
+        'weights/forward_pass_repair/0.3/yolo_conv4_conv5_folded_forward_pass_repair_calib1000.pt',
+        'weights/forward_pass_repair/0.3/yolo_conv4_conv5_folded_forward_pass_repair_calib5000.pt',
+        'weights/forward_pass_repair/0.3/yolo_conv4_conv5_folded_forward_pass_repair_calib20000.pt'
+    ]
+
+    CUSTOM_LABELS = [
+        "YOLOv8m",
+
+        "No Repair", "1k Calib", "5k Calib", "20k Calib",
+        "No Repair", "1k Calib", "5k Calib", "20k Calib",
+        "No Repair", "1k Calib", "5k Calib", "20k Calib"
+    ]
+
+    GROUPS = [
+        "Baseline",
+
+        "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1",
+        "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2",
+        "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3"
+    ]
+
+    REPORT_TITLE = "conv4_conv5 Full compare of folded Versions"
+
+
+
+
+
+
+
+
+MODELS_TO_COMPARE = [
+        # --- BASELINE ---
+        'weights/yolov8m.pt',
+
+        # --- PAIRING RATE 0.1 ---
+        'weights/prune/0.1/yolo_conv4_conv5_pruned_without_repair.pt',
+        'weights/prune/0.1/yolo_conv4_conv5_pruned_forward_pass_repair_calib1000.pt',
+        'weights/prune/0.1/yolo_conv4_conv5_pruned_forward_pass_repair_calib5000.pt',
+        'weights/prune/0.1/yolo_conv4_conv5_pruned_forward_pass_repair_calib20000.pt',
+
+        # --- PAIRING RATE 0.2 ---
+        'weights/prune/0.2/yolo_conv4_conv5_pruned_without_repair.pt',
+        'weights/prune/0.2/yolo_conv4_conv5_pruned_forward_pass_repair_calib1000.pt',
+        'weights/prune/0.2/yolo_conv4_conv5_pruned_forward_pass_repair_calib5000.pt',
+        'weights/prune/0.2/yolo_conv4_conv5_pruned_forward_pass_repair_calib20000.pt',
+
+        # --- PAIRING RATE 0.3 ---
+        'weights/prune/0.3/yolo_conv4_conv5_pruned_without_repair.pt',
+        'weights/prune/0.3/yolo_conv4_conv5_pruned_forward_pass_repair_calib1000.pt',
+        'weights/prune/0.3/yolo_conv4_conv5_pruned_forward_pass_repair_calib5000.pt',
+        'weights/prune/0.3/yolo_conv4_conv5_pruned_forward_pass_repair_calib20000.pt'
+    ]
+
+    CUSTOM_LABELS = [
+        "YOLOv8m",
+
+        "No Repair", "1k Calib", "5k Calib", "20k Calib",
+        "No Repair", "1k Calib", "5k Calib", "20k Calib",
+        "No Repair", "1k Calib", "5k Calib", "20k Calib"
+    ]
+
+    GROUPS = [
+        "Baseline",
+
+        "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1",
+        "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2",
+        "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3"
+    ]
+
+    REPORT_TITLE = "conv4_conv5 Full compare of pruned Versions"
+
+
+
+
+MODELS_TO_COMPARE = [
+        # --- BASELINE ---
+        'weights/yolov8m.pt',
+
+        # --- PAIRING RATE 0.1 ---
+        'weights/without_repair/0.1/yolo_conv4_conv5_folded_without_repair.pt',
+        'weights/prune/0.1/yolo_conv4_conv5_pruned_without_repair.pt',
+        'weights/forward_pass_repair/0.1/yolo_conv4_conv5_folded_forward_pass_repair_calib1000.pt',
+        'weights/prune/0.1/yolo_conv4_conv5_pruned_forward_pass_repair_calib1000.pt',
+        'weights/forward_pass_repair/0.1/yolo_conv4_conv5_folded_forward_pass_repair_calib5000.pt',
+        'weights/prune/0.1/yolo_conv4_conv5_pruned_forward_pass_repair_calib5000.pt',
+        'weights/forward_pass_repair/0.1/yolo_conv4_conv5_folded_forward_pass_repair_calib20000.pt',
+        'weights/prune/0.1/yolo_conv4_conv5_pruned_forward_pass_repair_calib20000.pt',
+
+        # --- PAIRING RATE 0.2 ---
+        'weights/without_repair/0.2/yolo_conv4_conv5_folded_without_repair.pt',
+        'weights/prune/0.2/yolo_conv4_conv5_pruned_without_repair.pt',
+        'weights/forward_pass_repair/0.2/yolo_conv4_conv5_folded_forward_pass_repair_calib1000.pt',
+        'weights/prune/0.2/yolo_conv4_conv5_pruned_forward_pass_repair_calib1000.pt',
+        'weights/forward_pass_repair/0.2/yolo_conv4_conv5_folded_forward_pass_repair_calib5000.pt',
+        'weights/prune/0.2/yolo_conv4_conv5_pruned_forward_pass_repair_calib5000.pt',
+        'weights/forward_pass_repair/0.2/yolo_conv4_conv5_folded_forward_pass_repair_calib20000.pt',
+        'weights/prune/0.2/yolo_conv4_conv5_pruned_forward_pass_repair_calib20000.pt',
+
+        # --- PAIRING RATE 0.3 ---
+        'weights/without_repair/0.3/yolo_conv4_conv5_folded_without_repair.pt',
+        'weights/prune/0.3/yolo_conv4_conv5_pruned_without_repair.pt',
+        'weights/forward_pass_repair/0.3/yolo_conv4_conv5_folded_forward_pass_repair_calib1000.pt',
+        'weights/prune/0.3/yolo_conv4_conv5_pruned_forward_pass_repair_calib1000.pt',
+        'weights/forward_pass_repair/0.3/yolo_conv4_conv5_folded_forward_pass_repair_calib5000.pt',
+        'weights/prune/0.3/yolo_conv4_conv5_pruned_forward_pass_repair_calib5000.pt',
+        'weights/forward_pass_repair/0.3/yolo_conv4_conv5_folded_forward_pass_repair_calib20000.pt',
+        'weights/prune/0.3/yolo_conv4_conv5_pruned_forward_pass_repair_calib20000.pt'
+    ]
+
+    CUSTOM_LABELS = [
+        "YOLOv8m",
+
+        "Folded: No Repair", "Pruned: No Repair",
+        "Folded: 1k Calib", "Pruned: 1k Calib",
+        "Folded: 5k Calib", "Pruned: 5k Calib",
+        "Folded: 20k Calib", "Pruned: 20k Calib",
+
+        "Folded: No Repair", "Pruned: No Repair",
+        "Folded: 1k Calib", "Pruned: 1k Calib",
+        "Folded: 5k Calib", "Pruned: 5k Calib",
+        "Folded: 20k Calib", "Pruned: 20k Calib",
+
+        "Folded: No Repair", "Pruned: No Repair",
+        "Folded: 1k Calib", "Pruned: 1k Calib",
+        "Folded: 5k Calib", "Pruned: 5k Calib",
+        "Folded: 20k Calib", "Pruned: 20k Calib"
+    ]
+
+    GROUPS = [
+        "Baseline",
+
+        "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1",
+        "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2",
+        "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3"
+    ]
+
+    REPORT_TITLE = "Ultimate Ablation: Structural Folding vs. Pruning"

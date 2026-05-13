@@ -508,14 +508,14 @@ def main():
     WEIGHTS_PATH = "weights/yolov8m.pt"
     CALIB_DS = "coco/images/train2017"
     #if this is None => manual experimen is used
-    EXPERIMENTS_FILE = "config_experiments/experiment_1.json"
+    EXPERIMENTS_FILE = None
 
     # MANUAL PARAMETERS (Used ONLY if EXPERIMENTS_FILE = None !!)
     manual_experiments = [
         {
-            "config": "config/yolo_conv5_conv7.yaml",
+            "config": "config_folding/yolo_conv4_to_conv8.json",
             "pairing_rates": [0.1],
-            "calib_images": [1000],
+            "calib_images": [60000],
             "repair": [True]
         }
     ]

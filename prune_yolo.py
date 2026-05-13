@@ -1,26 +1,26 @@
 import os
 import json
 import math
+import copy
+import cv2
 import torch
 import torch.nn as nn
 from typing import Sequence, Type
 from ultralytics import YOLO
 from ultralytics.nn.modules import Detect
-from torchvision.datasets import CocoDetection
-from torchvision import transforms
-from torch.utils.data import DataLoader
-
+from torch.utils.data import DataLoader, Dataset
 import torch_pruning as tp
-
-
+import numpy as np
 """
 This code is mainly form here: https://github.com/VainF/Torch-Pruning/blob/master/examples/yolov8/yolov8_pruning.py
 """
 
-#C2f compability                                                     #
+
+# --- YOLO C2f Compatibility ---
 def _try_import_yolo_modules():
     from ultralytics.nn.modules import C2f, Conv, Bottleneck, Detect
     return C2f, Conv, Bottleneck, Detect
+
 
 class C2f_v2(nn.Module):
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
@@ -34,15 +34,18 @@ class C2f_v2(nn.Module):
             Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0)
             for _ in range(n)
         )
+
     def forward(self, x):
         y = [self.cv0(x), self.cv1(x)]
         y.extend(m(y[-1]) for m in self.m)
         return self.cv2(torch.cat(y, 1))
 
+
 def _infer_shortcut(bottleneck) -> bool:
     c1 = bottleneck.cv1.conv.in_channels
     c2 = bottleneck.cv2.conv.out_channels
     return c1 == c2 and getattr(bottleneck, "add", False)
+
 
 def _transfer_weights(c2f, c2f_v2: C2f_v2) -> None:
     c2f_v2.cv2 = c2f.cv2
@@ -59,6 +62,7 @@ def _transfer_weights(c2f, c2f_v2: C2f_v2) -> None:
             sd_v2[key] = val
     c2f_v2.load_state_dict(sd_v2)
 
+
 def replace_c2f_with_c2f_v2(module: nn.Module) -> None:
     C2f, _, _, _ = _try_import_yolo_modules()
     for name, child in list(module.named_children()):
@@ -72,7 +76,6 @@ def replace_c2f_with_c2f_v2(module: nn.Module) -> None:
                 g=child.m[0].cv2.conv.groups,
                 e=child.c / child.cv2.conv.out_channels
             )
-            # Copy Ultralytics metadata
             if hasattr(child, 'f'): c2f_v2.f = child.f
             if hasattr(child, 'i'): c2f_v2.i = child.i
             if hasattr(child, 'type'): c2f_v2.type = child.type
@@ -83,7 +86,32 @@ def replace_c2f_with_c2f_v2(module: nn.Module) -> None:
             replace_c2f_with_c2f_v2(child)
 
 
-#pruning
+# --- Custom Dataset for Unlabeled Images ---
+class UnlabeledImageDataset(Dataset):
+    def __init__(self, img_dir, imgsz=640):
+        self.img_dir = img_dir
+        self.img_files = [os.path.join(img_dir, f) for f in os.listdir(img_dir)
+                          if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+        self.imgsz = imgsz
+
+    def __len__(self):
+        return len(self.img_files)
+
+    def __getitem__(self, idx):
+        img_path = self.img_files[idx]
+        img = cv2.imread(img_path)
+        h, w = img.shape[:2]
+        r = self.imgsz / max(h, w)
+        if r != 1:
+            img = cv2.resize(img, (int(w * r), int(h * r)), interpolation=cv2.INTER_LINEAR)
+        padded = np.full((self.imgsz, self.imgsz, 3), 114, dtype=np.uint8)
+        padded[:img.shape[0], :img.shape[1], :] = img
+        img = padded.transpose((2, 0, 1))[::-1]
+        img = np.ascontiguousarray(img)
+        return torch.from_numpy(img).float() / 255.0
+
+
+# --- Pruning Logic ---
 def prune_yolov8_tp(
         model: nn.Module,
         pruning_ratio: float = 0.2,
@@ -97,10 +125,9 @@ def prune_yolov8_tp(
     if device is None:
         device = next(model.parameters()).device
 
-    #L2-Norm
     importance = tp.importance.GroupMagnitudeImportance(p=2)
-    #ignored layers list (eg: Detection Head)
     ignored_layers = []
+
     if config_path and os.path.exists(config_path):
         with open(config_path, 'r') as f:
             config_map = json.load(f)
@@ -111,6 +138,7 @@ def prune_yolov8_tp(
                     ignored_layers.append(m)
         if verbose:
             print(f"JSON Config Applied: {len(prunable_names)} layers prunable. Others protected.")
+
     for m in model.modules():
         if isinstance(m, tuple(ignored_layer_types)) if ignored_layer_types else False:
             ignored_layers.append(m)
@@ -118,10 +146,11 @@ def prune_yolov8_tp(
     example_inputs = torch.randn(1, 3, imgsz, imgsz, device=device)
     model.eval()
     base_macs, base_params = tp.utils.count_ops_and_params(model, example_inputs)
+
     if verbose:
         print(f"\nBase MACs:   {base_macs / 1e9:.4f} G")
         print(f"Base Params: {base_params / 1e6:.4f} M")
-    #use of the pruning libary
+
     step_ratio = 1.0 - math.pow(1.0 - pruning_ratio, 1.0 / iterative_steps)
     for step in range(iterative_steps):
         pruner = tp.pruner.GroupNormPruner(
@@ -148,7 +177,7 @@ def prune_yolov8_tp(
     }
 
 
-#simple forwardpass to recalibrate the BN Layers
+# --- Forward Pass Repair ---
 def repair_bn_forward_pass(
         model: nn.Module,
         loader,
@@ -160,7 +189,6 @@ def repair_bn_forward_pass(
     all_bn = {name: m for name, m in model.named_modules()
               if isinstance(m, nn.BatchNorm2d)}
 
-    # Determine which BN layers to reset
     if config_path and os.path.exists(config_path):
         with open(config_path) as f:
             plan = json.load(f)
@@ -177,16 +205,14 @@ def repair_bn_forward_pass(
 
         bn_to_reset = {n: all_bn[n] for n in affected_bns}
     else:
-        # No config_folding — reset all (only correct when entire model was pruned/folded)
         bn_to_reset = all_bn
 
     if not bn_to_reset:
         print("[REPAIR] No BN layers to reset — skipping.")
         return model
 
-    # Reset running stats on affected BN layers only
     for bn in bn_to_reset.values():
-        bn.momentum = None          # cumulative moving average
+        bn.momentum = None
         bn.reset_running_stats()
 
     if verbose:
@@ -195,28 +221,28 @@ def repair_bn_forward_pass(
         for name in sorted(bn_to_reset):
             print(f"    ↺ {name}")
 
-    # Forward pass — BN accumulates fresh running stats, no weight updates
     model.train()
     model_dtype = next(model.parameters()).dtype
     seen = 0
 
     with torch.no_grad():
-        for batch in loader:
-            images = batch[0] if isinstance(batch, (list, tuple)) else batch
-            images = images.to(device=device, dtype=model_dtype)
+        # Keep looping over the dataloader until we hit the exact max_samples
+        while seen < max_samples:
+            for images in loader:
+                images = images.to(device=device, dtype=model_dtype)
 
-            try:
-                model(images)
-            except Exception as e:
-                print(f"\n  [REPAIR] Forward pass error: {e}")
-                break
+                try:
+                    model(images)
+                except Exception as e:
+                    print(f"\n  [REPAIR] Forward pass error: {e}")
+                    return model
 
-            seen += images.shape[0]
-            if verbose:
-                print(f"  Samples seen: {seen}/{max_samples}", end="\r")
+                seen += images.shape[0]
+                if verbose:
+                    print(f"  Samples seen: {seen}/{max_samples}", end="\r")
 
-            if seen >= max_samples:
-                break
+                if seen >= max_samples:
+                    break
 
     model.eval()
 
@@ -226,7 +252,7 @@ def repair_bn_forward_pass(
     return model
 
 
-#save the model
+# --- Utility ---
 def save_yolo_checkpoint(model: nn.Module, path: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     ckpt = {
@@ -238,58 +264,61 @@ def save_yolo_checkpoint(model: nn.Module, path: str) -> None:
     torch.save(ckpt, path)
     print(f"Saved: {path}")
 
-def collate_fn(batch):
-    return torch.stack([item[0] for item in batch]), [item[1] for item in batch]
 
-
+# --- EXECUTION ---
 if __name__ == "__main__":
+    RATIO = [0.1,0.2,0.3]
 
-    MODEL_PATH  = "weights/yolov8m.pt"
-    JSON_CONFIG = "config_folding/yolo_conv4_conv5.json"
-    BASE_SAVE   = "weights/yolo_conv4_conv5"
+    for ratio in RATIO:
+        MODEL_PATH = "weights/yolov8m.pt"
+        JSON_CONFIG = "config_folding/yolo_conv4_to_conv8.json"
+        BASE_SAVE = f"weights/prune/{ratio}/yolo_conv4_to_conv8"
+        COCO_IMGS = "coco/images/val2017"
 
-    COCO_IMGS   = "coco/images/val2017"
-    COCO_ANNS   = "coco/annotations/instances_val2017.json"
-    RATIO       = 0.1
+        CALIB_SIZES = [1000, 5000, 20000, 60000]
+        yolo = YOLO(MODEL_PATH)
+        model = yolo.model
+        replace_c2f_with_c2f_v2(model)
 
-    yolo  = YOLO(MODEL_PATH)
-    model = yolo.model
-    replace_c2f_with_c2f_v2(model)
+        # 1. Prune step
+        stats = prune_yolov8_tp(
+            model,
+            pruning_ratio=ratio,
+            config_path=JSON_CONFIG,
+            ignored_layer_types=(Detect,),
+        )
 
-    #Prune step
-    stats = prune_yolov8_tp(
-        model,
-        pruning_ratio=RATIO,
-        config_path=JSON_CONFIG,
-        ignored_layer_types=(Detect,),
-    )
+        reduction = (1 - stats['pruned_params'] / stats['base_params']) * 100
+        print(f"\nBaseline Params: {stats['base_params']:,}")
+        print(f"Pruned Params:   {stats['pruned_params']:,}  ({reduction:.2f}% reduction)")
 
-    reduction = (1 - stats['pruned_params'] / stats['base_params']) * 100
-    print(f"\nBaseline Params: {stats['base_params']:,}")
-    print(f"Pruned Params:   {stats['pruned_params']:,}  ({reduction:.2f}% reduction)")
+        # 2. Save without repair (Acts as the baseline for this pairing rate)
+        save_yolo_checkpoint(model, f"{BASE_SAVE}_pruned_without_repair.pt")
 
-    #save without repair
-    save_yolo_checkpoint(model, f"{BASE_SAVE}_pruned_no_repair.pt")
-    #COCO specific dataloader
-    transform = transforms.Compose([
-        transforms.Resize((640, 640)),
-        transforms.ToTensor(),
-    ])
+        # 3. Prepare the unlabelled dataloader
+        calib_dataset = UnlabeledImageDataset(COCO_IMGS, imgsz=640)
+        calib_loader = DataLoader(
+            calib_dataset,
+            batch_size=16,
+            shuffle=True,  # Shuffle ensures robust variance calculation
+            num_workers=4,
+        )
 
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    calib_dataset = CocoDetection(COCO_IMGS, COCO_ANNS, transform=transform)
-    calib_loader  = DataLoader(
-        calib_dataset,
-        batch_size=16,
-        shuffle=True,
-        num_workers=0,
-        collate_fn=collate_fn,
-    )
+        # 4. Generate all calibrated models in one loop
+        for calib_size in CALIB_SIZES:
+            print(f"\n{'=' * 60}\nRunning BN Repair for {calib_size} Samples\n{'=' * 60}")
 
-    #apply forward pass
-    model = model.to("cuda")
-    device = next(model.parameters()).device
-    repair_bn_forward_pass(model, calib_loader, device, config_path=JSON_CONFIG, max_samples=1000)
+            # Deepcopy guarantees we are always repairing from the blank 'no_repair' slate
+            model_to_repair = copy.deepcopy(model).to(device)
 
-    #save with forward pass
-    save_yolo_checkpoint(model, f"{BASE_SAVE}_pruned_with_repair.pt")
+            repair_bn_forward_pass(
+                model_to_repair,
+                calib_loader,
+                device,
+                config_path=JSON_CONFIG,
+                max_samples=calib_size
+            )
+
+            save_yolo_checkpoint(model_to_repair, f"{BASE_SAVE}_pruned_forward_pass_repair_calib{calib_size}.pt")
