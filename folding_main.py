@@ -261,7 +261,8 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate):
         _, bn_f, _ = merge_conv_bn(cv1, bn_cv1, None, U_new, order='output', name=bn_cv1_name)
         set_module_by_name(model, bn_cv1_name, bn_f)
 
-        #Fold the Bottleneck Layers -> We use the bottom "half" of the clustering matrice -> We use the same for all of them.
+        #Fold the Bottleneck Layers -> We use the bottom "half" of the clustering matrice -> We use the same for all bottleneck cv2 layers
+        # (since they have an "add" connection to the contact layer) of them.
         U_sliced = U_new[half:, target_half:]
         for i, bottleneck in enumerate(c2f_layer.m):
             conv1_name = f"{block_name}.m.{i}.cv1.conv"
@@ -378,12 +379,12 @@ def repair_bn_forward_pass(model, loader, device, folding_plan=None, max_samples
               f"on {seen} samples.{C['res']}")
     return model
 
-def run_folding_experiment(weights_path, config_path, pairing_rate, calib_images, do_repair, calib_ds="coco/labels/train2017"):
+def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib_images, do_repair, calib_ds="coco/labels/train2017"):
     # load yolo weights
     filename = os.path.basename(config_path)
     config_name = os.path.splitext(filename)[0]
     print(f"\n{C['bold']}============================================================{C['res']}")
-    print(f"{C['b']}STARTING RUN: Config: {config_name} | PR: {pairing_rate} | Calib N: {calib_images}{C['res']}")
+    print(f"{C['b']}STARTING RUN: Config: {config_name} | PR: {pairing_rate} | Calib N: {number_calib_images}{C['res']}")
     print(f"{C['bold']}============================================================{C['res']}")
     yolo = YOLO(weights_path)
     model = yolo.model.eval()
@@ -478,18 +479,14 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, calib_images
         full_dataset = utils_new.COCOImageFolder(
             image_dir=calib_ds,
             imgsz=640,
-            max_images=None  # We need the full pool to draw randomly from!
+            max_images=None
         )
 
-        # 2. Generate 1.000 completely random, unique indices
-        # This naturally preserves the rough distribution of the whole dataset
+        #Generate a random dataset (unique index)
         total_images = len(full_dataset)
-        random_indices = random.sample(range(total_images), calib_images)
-
-        # 3. Create a Sub-Dataset with those random 1.000 images
+        random_indices = random.sample(range(total_images), number_calib_images)
         random_subset = Subset(full_dataset, random_indices)
-
-        # 4. Pass the subset to your DataLoader
+        #The dataloead uses this subset
         train_loader = DataLoader(
             random_subset,
             batch_size=16,
@@ -497,8 +494,9 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, calib_images
             num_workers=2,
             pin_memory=True,
         )
-        repair_bn_forward_pass(model, train_loader, device,folding_plan=folding_plan, max_samples=calib_images)
-        save_model(model, yolo,f"forward_pass_repair",pairing_rate,config_name,num_calib_images=calib_images)
+        #call the repair BN Layer function
+        repair_bn_forward_pass(model, train_loader, device, folding_plan=folding_plan, max_samples=number_calib_images)
+        save_model(model, yolo,f"forward_pass_repair", pairing_rate, config_name, num_calib_images=number_calib_images)
     del model
     del yolo
     torch.cuda.empty_cache()
@@ -515,7 +513,7 @@ def main():
         {
             "config": "config_folding/yolo_conv4_to_conv8.json",
             "pairing_rates": [0.1],
-            "calib_images": [60000],
+            "calib_images": [5000],
             "repair": [True]
         }
     ]
@@ -531,12 +529,10 @@ def main():
 
     print(f"{C['cy']}Queued {len(experiments)} experiment profiles.{C['res']}\n")
 
-    # 2. Execute the Grid Search
+    #double for loop => Grid Search
     for exp in experiments:
         config_file = exp["config"]
-
-        # itertools.product creates every possible combination of the lists
-        # .get() is used here as a safety net in case you forget a key in the JSON
+        # itertools => Every combination of that list ("dummy" values to prevent an error)
         combinations = itertools.product(
             exp.get("pairing_rates", [0.1]),
             exp.get("calib_images", [1000]),
@@ -544,7 +540,6 @@ def main():
         )
 
         for pr, calib_n, do_rep in combinations:
-            # We clear the u_cache so cross-run U-matrices don't leak into each other
             global u_cache
             u_cache = {}
 
@@ -552,7 +547,7 @@ def main():
                 weights_path=WEIGHTS_PATH,
                 config_path=config_file,
                 pairing_rate=pr,
-                calib_images=calib_n,
+                number_calib_images=calib_n,
                 do_repair=do_rep,
                 calib_ds=CALIB_DS
             )

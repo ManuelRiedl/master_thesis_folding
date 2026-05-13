@@ -111,7 +111,6 @@ class UnlabeledImageDataset(Dataset):
         return torch.from_numpy(img).float() / 255.0
 
 
-# --- Pruning Logic ---
 def prune_yolov8_tp(
         model: nn.Module,
         pruning_ratio: float = 0.2,
@@ -177,7 +176,7 @@ def prune_yolov8_tp(
     }
 
 
-# --- Forward Pass Repair ---
+#foeard pass repair
 def repair_bn_forward_pass(
         model: nn.Module,
         loader,
@@ -226,7 +225,6 @@ def repair_bn_forward_pass(
     seen = 0
 
     with torch.no_grad():
-        # Keep looping over the dataloader until we hit the exact max_samples
         while seen < max_samples:
             for images in loader:
                 images = images.to(device=device, dtype=model_dtype)
@@ -252,7 +250,6 @@ def repair_bn_forward_pass(
     return model
 
 
-# --- Utility ---
 def save_yolo_checkpoint(model: nn.Module, path: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     ckpt = {
@@ -265,22 +262,20 @@ def save_yolo_checkpoint(model: nn.Module, path: str) -> None:
     print(f"Saved: {path}")
 
 
-# --- EXECUTION ---
 if __name__ == "__main__":
-    RATIO = [0.1,0.2,0.3]
+    RATIO = [0.1]
 
     for ratio in RATIO:
         MODEL_PATH = "weights/yolov8m.pt"
-        JSON_CONFIG = "config_folding/yolo_conv4_to_conv8.json"
-        BASE_SAVE = f"weights/prune/{ratio}/yolo_conv4_to_conv8"
+        JSON_CONFIG = None
+        BASE_SAVE = f"weights/prune/{ratio}/yolo_global"
         COCO_IMGS = "coco/images/val2017"
 
-        CALIB_SIZES = [1000, 5000, 20000, 60000]
+        CALIB_SIZES = [20000]
         yolo = YOLO(MODEL_PATH)
         model = yolo.model
         replace_c2f_with_c2f_v2(model)
 
-        # 1. Prune step
         stats = prune_yolov8_tp(
             model,
             pruning_ratio=ratio,
@@ -292,25 +287,21 @@ if __name__ == "__main__":
         print(f"\nBaseline Params: {stats['base_params']:,}")
         print(f"Pruned Params:   {stats['pruned_params']:,}  ({reduction:.2f}% reduction)")
 
-        # 2. Save without repair (Acts as the baseline for this pairing rate)
         save_yolo_checkpoint(model, f"{BASE_SAVE}_pruned_without_repair.pt")
 
-        # 3. Prepare the unlabelled dataloader
         calib_dataset = UnlabeledImageDataset(COCO_IMGS, imgsz=640)
         calib_loader = DataLoader(
             calib_dataset,
             batch_size=16,
-            shuffle=True,  # Shuffle ensures robust variance calculation
+            shuffle=True,
             num_workers=4,
         )
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # 4. Generate all calibrated models in one loop
         for calib_size in CALIB_SIZES:
             print(f"\n{'=' * 60}\nRunning BN Repair for {calib_size} Samples\n{'=' * 60}")
 
-            # Deepcopy guarantees we are always repairing from the blank 'no_repair' slate
             model_to_repair = copy.deepcopy(model).to(device)
 
             repair_bn_forward_pass(

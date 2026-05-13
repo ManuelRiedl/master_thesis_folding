@@ -13,6 +13,7 @@ from datetime import datetime
 from tqdm import tqdm
 from ultralytics import YOLO
 
+#This plotting file was made with the help of GEMINI
 
 # --- UI CONSTANTS ---
 C = {'b': '\033[94m', 'g': '\033[92m', 'y': '\033[93m', 'r': '\033[91m', 'bold': '\033[1m', 'dim': '\033[2m',
@@ -444,79 +445,36 @@ class FoldingComparator:
 
 # --- EXECUTION ---
 if __name__ == "__main__":
-
     MODELS_TO_COMPARE = [
         # --- BASELINE ---
         'weights/yolov8m.pt',
-
-        # --- PAIRING RATE 0.1 ---
-        'weights/without_repair/0.1/yolo_conv4_to_conv8_folded_without_repair.pt',
-        'weights/prune/0.1/yolo_conv4_to_conv8_pruned_without_repair.pt',
-        'weights/forward_pass_repair/0.1/yolo_conv4_to_conv8_folded_forward_pass_repair_calib1000.pt',
-        'weights/prune/0.1/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib1000.pt',
-        'weights/forward_pass_repair/0.1/yolo_conv4_to_conv8_folded_forward_pass_repair_calib5000.pt',
-        'weights/prune/0.1/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib5000.pt',
-        'weights/forward_pass_repair/0.1/yolo_conv4_to_conv8_folded_forward_pass_repair_calib20000.pt',
-        'weights/prune/0.1/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib20000.pt',
-        'weights/forward_pass_repair/0.1/yolo_conv4_to_conv8_folded_forward_pass_repair_calib60000.pt',
-        'weights/prune/0.1/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib60000.pt',
-
-        # --- PAIRING RATE 0.2 ---
-        'weights/without_repair/0.2/yolo_conv4_to_conv8_folded_without_repair.pt',
-        'weights/prune/0.2/yolo_conv4_to_conv8_pruned_without_repair.pt',
-        'weights/forward_pass_repair/0.2/yolo_conv4_to_conv8_folded_forward_pass_repair_calib1000.pt',
-        'weights/prune/0.2/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib1000.pt',
-        'weights/forward_pass_repair/0.2/yolo_conv4_to_conv8_folded_forward_pass_repair_calib5000.pt',
-        'weights/prune/0.2/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib5000.pt',
-        'weights/forward_pass_repair/0.2/yolo_conv4_to_conv8_folded_forward_pass_repair_calib20000.pt',
-        'weights/prune/0.2/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib20000.pt',
-        'weights/forward_pass_repair/0.2/yolo_conv4_to_conv8_folded_forward_pass_repair_calib60000.pt',
-        'weights/prune/0.2/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib60000.pt',
-
-        # --- PAIRING RATE 0.3 ---
-        'weights/without_repair/0.3/yolo_conv4_to_conv8_folded_without_repair.pt',
-        'weights/prune/0.3/yolo_conv4_to_conv8_pruned_without_repair.pt',
-        'weights/forward_pass_repair/0.3/yolo_conv4_to_conv8_folded_forward_pass_repair_calib1000.pt',
-        'weights/prune/0.3/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib1000.pt',
-        'weights/forward_pass_repair/0.3/yolo_conv4_to_conv8_folded_forward_pass_repair_calib5000.pt',
-        'weights/prune/0.3/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib5000.pt',
-        'weights/forward_pass_repair/0.3/yolo_conv4_to_conv8_folded_forward_pass_repair_calib20000.pt',
-        'weights/prune/0.3/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib20000.pt',
-        'weights/forward_pass_repair/0.3/yolo_conv4_to_conv8_folded_forward_pass_repair_calib60000.pt',
-        'weights/prune/0.3/yolo_conv4_to_conv8_pruned_forward_pass_repair_calib60000.pt'
+        # --- GLOBAL PRUNING RATIO 0.05 ---
+        'weights/prune/0.1/yolo_global_pruned_without_repair.pt',
+        'weights/prune/0.1/yolo_global_pruned_forward_pass_repair_calib1000.pt',
+        'weights/prune/0.1/yolo_global_pruned_forward_pass_repair_calib5000.pt',
+        'weights/prune/0.1/yolo_global_pruned_forward_pass_repair_calib20000.pt'
     ]
 
     CUSTOM_LABELS = [
         "YOLOv8m",
 
-        "Folded: No Repair", "Pruned: No Repair",
-        "Folded: 1k Calib", "Pruned: 1k Calib",
-        "Folded: 5k Calib", "Pruned: 5k Calib",
-        "Folded: 20k Calib", "Pruned: 20k Calib",
-        "Folded: 60k Calib", "Pruned: 60k Calib",
-
-        "Folded: No Repair", "Pruned: No Repair",
-        "Folded: 1k Calib", "Pruned: 1k Calib",
-        "Folded: 5k Calib", "Pruned: 5k Calib",
-        "Folded: 20k Calib", "Pruned: 20k Calib",
-        "Folded: 60k Calib", "Pruned: 60k Calib",
-
-        "Folded: No Repair", "Pruned: No Repair",
-        "Folded: 1k Calib", "Pruned: 1k Calib",
-        "Folded: 5k Calib", "Pruned: 5k Calib",
-        "Folded: 20k Calib", "Pruned: 20k Calib",
-        "Folded: 60k Calib", "Pruned: 60k Calib"
+        "Pruned: No Repair",
+        "Pruned: 1k Calib",
+        "Pruned: 5k Calib",
+        "Pruned: 20k Calib"
     ]
 
     GROUPS = [
         "Baseline",
 
-        "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1", "PR: 0.1",
-        "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2", "PR: 0.2",
-        "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3", "PR: 0.3"
+        "PR: 0.1",
+        "PR: 0.1",
+        "PR: 0.1",
+        "PR: 0.1"
     ]
 
-    REPORT_TITLE = "conv4_to_conv8 compare: Structural Folding vs. Pruning"
+    REPORT_TITLE = "Test Analysis: Global Pruning (Ratio 0.1)"
+
     IMG_PATH = r"coco/images/val2017"
 
     comp = FoldingComparator(
