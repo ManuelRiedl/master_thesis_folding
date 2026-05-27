@@ -13,7 +13,7 @@ import cv2
 import itertools
 import json
 from torch.utils.data import Subset, DataLoader
-
+import copy
 
 #disable ultralytics logs
 os.environ['YOLO_VERBOSE'] = 'False'
@@ -29,7 +29,8 @@ u_cache = {}
 def save_model(model, yolo_obj, type_name, rate, config_name, num_calib_images=None):
     print(f"\n{C['dim']}Saving folded model into native YOLO dictionary format...{C['res']}")
     ckpt = yolo.ckpt if hasattr(yolo, 'ckpt') else {}
-    ckpt['model'] = model.half()
+    #we save the model as fp16 - but the rest of the code assumes fp32
+    ckpt['model'] = copy.deepcopy(model).half()
     if hasattr(model, 'names'):
         ckpt['names'] = model.names
 
@@ -42,8 +43,6 @@ def save_model(model, yolo_obj, type_name, rate, config_name, num_calib_images=N
         file_name = f"{config_name}_folded_{type_name}_calib{num_calib_images}.pt"
     save_path = os.path.join(target_dir, file_name)
     torch.save(ckpt, save_path)
-    #we save the model as fp16 - but the rest of the code assumes fp32 => inplace operation
-    model.float()
     print(f"{C['g']}{C['bold']}Model successfully saved to {save_path}!{C['res']}")
 
 
@@ -168,7 +167,7 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
                 new_bn = nn.BatchNorm2d(n_folded).to(device).to(bn_L.weight.dtype)
                 new_bn.weight = nn.Parameter(M @ bn_L.weight.data)
                 new_bn.bias = nn.Parameter(M @ bn_L.bias.data)
-
+                """
                 # we cant average the stds because it is a squared quantity
                 # we would overestimate the true merged variance -> so we need to average before stds (inverse stds)
                 inv_stds = 1.0 / torch.sqrt(bn_L.running_var.data + 1e-6)
@@ -178,6 +177,21 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
                 new_bn.running_mean = new_running_mean_normed * torch.sqrt(new_running_var)
                 # Average running_var in std-dev space — prevents overestimation
                 new_bn.running_var = new_running_var
+                """
+                USE_ARITHMETIC_BN_MERGE = False  # Set to True to test Option B
+                if USE_ARITHMETIC_BN_MERGE:
+                    new_bn.running_mean = M @ bn_L.running_mean.data
+                    new_bn.running_var = M @ bn_L.running_var.data
+                else:
+                    # we cant average the stds because it is a squared quantity
+                    # we would overestimate the true merged variance -> so we need to average before stds (inverse stds)
+                    inv_stds = 1.0 / torch.sqrt(bn_L.running_var.data + 1e-6)
+                    new_running_mean_normed = M @ (bn_L.running_mean.data * inv_stds)
+                    new_inv_stds = M @ inv_stds
+                    new_running_var = (1.0 / (new_inv_stds + 1e-6)) ** 2
+                    new_bn.running_mean = new_running_mean_normed * torch.sqrt(new_running_var)
+                    # Average running_var in std-dev space — prevents overestimation
+                    new_bn.running_var = new_running_var
                 print(f"      {C['b']}[Debug: BN Fold]{C['res']} BN channels updated to a shape of {C['bold']}{n_folded}{C['res']}")
             return conv_L, new_bn, conv_next
 
@@ -199,6 +213,8 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
             #                                             [ 0, 0, 0, 1 ]
             #                                             [ 0, 0, 0, 1 ]
             num_paths = actual_in_channels // n_original
+
+            """
             if num_paths > 1:
                 print(f"      {C['dim']}[Debug: Concat Block]{C['res']} {C['y']}Detected {num_paths} paths. Expanding U diagonally.{C['res']}")
                 U_to_use = torch.zeros(actual_in_channels, n_folded * num_paths, device=device)
@@ -206,7 +222,8 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
                     U_to_use[i * n_original:(i + 1) * n_original, i * n_folded:(i + 1) * n_folded] = U
                 n_fold_in = n_folded * num_paths
             else:
-                U_to_use, n_fold_in = U, n_folded
+            """
+            U_to_use, n_fold_in = U, n_folded
 
             # Fold Input Weights (Algorithm 1, Step 3)
             W_flat = conv_next.weight.data.permute(1, 0, 2, 3).contiguous().reshape(actual_in_channels, -1)
@@ -322,24 +339,27 @@ def repair_bn_forward_pass(model, loader, device, folding_plan=None, max_samples
     #get all BN layers from the model
     all_bn_layers = {name: m for name, m in model.named_modules()
               if isinstance(m, nn.BatchNorm2d)}
+    bn_to_reset = {}
     if folding_plan is not None:
-        #get the actual layers that we folded
-        folded_conv_layers = [name for name, cfg in folding_plan.items()
-                        if cfg.get("do_folding", False)]
-        #mapping of conv layer with associated bn layer (eg: model.4.cv1.conv => model.4.cv1.bn)
-        affected_bn_names = set()
-        for conv_name in folded_conv_layers:
-            if conv_name.endswith(".conv"):
-                bn_name = conv_name[:-len(".conv")] + ".bn"
-                if bn_name in all_bn_layers:
-                    affected_bn_names.add(bn_name)
-                else:
-                    if verbose:
-                        print(f"   {C['y']}[REPAIR] No BN found for {conv_name} → {bn_name} (skipped){C['res']}")
-        bn_to_reset = {n: all_bn_layers[n] for n in affected_bn_names}
+        # get a set of the actual layers that we folded
+        folded_conv_layers = set(name for name, cfg in folding_plan.items()
+                                 if cfg.get("do_folding", False))
+
+        start_resetting = False
+        # named_modules() iterates in the exact forward-pass execution order
+        for name, m in model.named_modules():
+            # The moment we hit the first folded layer, flip the switch to True
+            if name in folded_conv_layers:
+                start_resetting = True
+
+            # If the switch is flipped AND this module is a BN layer, add it
+            if start_resetting and isinstance(m, nn.BatchNorm2d):
+                bn_to_reset[name] = m
+
     else:
-        #when no plan is provided => reset all running statistics off all layers
+        # when no plan is provided => reset all running statistics of all layers
         bn_to_reset = all_bn_layers
+
     if not bn_to_reset:
         if verbose:
             print(f"   {C['y']}[REPAIR] No BN layers to reset — skipping.{C['res']}")
@@ -431,7 +451,16 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
                     conv_next = get_module_by_name(model, next_name)
                     conv_next_name = next_name
                     break
-            pairing_r = settings.get('pr', pairing_rate)
+            layer_pr = settings.get('pr')
+
+            if layer_pr is not None:
+                pairing_r = float(layer_pr)
+            else:
+                # Priority 2: Fall back to the global rate (Old Config)
+                if pairing_rate == "auto" or pairing_rate is None:
+                    raise ValueError(
+                        f"Crash Prevented: Layer '{module_name}' has no 'pr' in JSON, and global rate is '{pairing_rate}'.")
+                pairing_r = float(pairing_rate)
             ref_mapping = settings.get('consistent_map')
 
             if ref_mapping and ref_mapping in u_cache:
@@ -473,7 +502,7 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
     reduction = (1 - final_params / initial_params) * 100
     print(f"\n{C['bold']}Total Parameters: {final_params:,} ({C['g']}{reduction:.2f}% reduction{C['res']}{C['bold']}){C['res']}")
     utils_new.test_forward_pass(model, device)
-    save_model(model,yolo, "without_repair",pairing_rate,config_name)
+    save_model(model,yolo, "without_repair_fix",pairing_rate,config_name)
     if do_repair:
         #build the data loader for the fine-tuning
         full_dataset = utils_new.COCOImageFolder(
@@ -496,7 +525,7 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
         )
         #call the repair BN Layer function
         repair_bn_forward_pass(model, train_loader, device, folding_plan=folding_plan, max_samples=number_calib_images)
-        save_model(model, yolo,f"forward_pass_repair", pairing_rate, config_name, num_calib_images=number_calib_images)
+        save_model(model, yolo,f"forward_pass_repair_fix", pairing_rate, config_name, num_calib_images=number_calib_images)
     del model
     del yolo
     torch.cuda.empty_cache()
@@ -511,9 +540,9 @@ def main():
     # MANUAL PARAMETERS (Used ONLY if EXPERIMENTS_FILE = None !!)
     manual_experiments = [
         {
-            "config": "config_folding/yolo_conv4_to_conv8.json",
-            "pairing_rates": [0.1],
-            "calib_images": [5000],
+            "config": "config_folding/yolo_pruned_ratio_config.json",  # New config
+            "pairing_rates": ["auto"],  # Triggers the JSON-reading logic
+            "calib_images": [1000,5000],
             "repair": [True]
         }
     ]

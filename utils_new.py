@@ -5,10 +5,43 @@ from torchvision import transforms
 from PIL import Image
 import glob
 import re
+import cv2
+import numpy as np
 
-#The functions in this file are AI generated (GOOGLE GEMINI)
+"""Code is from here: https://github.com/SKaiNET-developers/SKaiNET/issues/262"""
+def letterbox(img, new_shape=(640, 640), color=(114, 114, 114)):
+    """Resizes and pads image to new_shape while retaining aspect ratio."""
+    shape = img.shape[:2]  # current shape [height, width]
+    if isinstance(new_shape, int):
+        new_shape = (new_shape, new_shape)
+
+    # Scale ratio (new / old)
+    r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
+
+    # Compute unpadded dimensions
+    new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
+
+    # Compute padding (width, height)
+    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]
+
+    # Divide padding equally on both sides
+    dw /= 2
+    dh /= 2
+
+    # Resize if necessary
+    if shape[::-1] != new_unpad:
+        img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+
+    # Add border
+    top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
+    left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+    img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
+
+    return img
 
 
+
+#The functions in this file contain AI generated code (GOOGLE GEMINI)
 class CalibrationDataset(Dataset):
     """
     Loads raw images from a folder — no labels needed.
@@ -39,26 +72,47 @@ class CalibrationDataset(Dataset):
 class COCOImageFolder(Dataset):
     """
     Image-only dataset for BN recalibration (REPAIR forward pass).
-    No annotations needed — labels are not used.
+    Uses letterboxing to match YOLOv8 evaluation preprocessing.
     """
+
     def __init__(self, image_dir, imgsz=640, max_images=None):
+        self.imgsz = imgsz  # <-- CRITICAL: Save this so letterbox can use it
+
         exts = ('.jpg', '.jpeg', '.png', '.bmp')
         self.paths = sorted([
             os.path.join(image_dir, f)
             for f in os.listdir(image_dir)
             if f.lower().endswith(exts)
         ])
+
         if max_images is not None:
             self.paths = self.paths[:max_images]
-        self.transform = transforms.Compose([
-            transforms.Resize((imgsz, imgsz)),
-            transforms.ToTensor(),
-        ])
+
     def __len__(self):
         return len(self.paths)
-    def __getitem__(self, idx):
-        img = Image.open(self.paths[idx]).convert("RGB")
-        return self.transform(img), 0
+
+    def __getitem__(self, index):
+        # Use self.paths to perfectly match the __init__ definition above
+        img_path = self.paths[index]
+        img = cv2.imread(img_path)
+
+        if img is None:
+            raise FileNotFoundError(f"Image not found or corrupted: {img_path}")
+
+        # 1. Apply Letterbox (using the saved self.imgsz)
+        img = letterbox(img, new_shape=(self.imgsz, self.imgsz))
+
+        # 2. Convert BGR to RGB (YOLO format)
+        img = img[:, :, ::-1]
+
+        # 3. Convert HWC to CHW
+        img = img.transpose((2, 0, 1))
+
+        # 4. Normalize to [0, 1]
+        img_tensor = torch.from_numpy(img.copy()).float() / 255.0
+
+        # Return as a tuple so `batch[0]` works in your REPAIR loop
+        return img_tensor,
 
 def test_forward_pass(model, device):
     """Runs a single dummy image through the model to check for crashes."""

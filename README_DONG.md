@@ -1,51 +1,50 @@
-Hello Dong - First of all, thanks for your time :)
+**1. Minor Accuracy Improvements via Forward Pass Fixes**
+`results_save/plots/statistics_comparison_table.png`
 
-**INFO**
-Just for your info: I used the COCO Train set, and as a Testing set, I used the COCO Validation set (5,000 images) from 2017 (https://www.kaggle.com/datasets/awsaf49/coco-2017-dataset/data). I used the val set as testing because the real test set labels are not public. Mutliple other papaers also used the val set as a metric - so I guess that should be fine. I used this pruning library for the baseline: https://github.com/VainF/Torch-Pruning/blob/master/examples/yolov8/yolov8_pruning.py.
-
-In the `results_save/plots` directory, I have tested a few combinations of layers and compared the folding against the pruning with different pairing rates (0.1, 0.2, 0.3) and calibration sets (1k, 5k, 20k). When I compared folding with pruning, I always folded/pruned the exact same layers.
+After implementing the letterboxing fix and the BN-reset for all layers subsequent to the first folded layer, I achieved an overall improvement in accuracy. However, as seen in the statistics table, the increase is very slight (about 0.02 percentage points). The overall results are still not quite that good.
 
 ***
 
-**1. Simple Conv Layers (conv5 and conv7)**
- `results_save/plots/conv5_conv7/comparison_conv5_conv7_Full_compare_of_folded_Versions_...png`
+**2. Global Pruning**
+`results_save/plots/comparison_Global_Pruned_Calibration_Comparison__1k_vs_5k__20260527_113256.png`
 
-For a pairing rate of 0.1 (which means a 1.21% weight reduction), the basic folded version got the best F1-Score—better than with Forward Calibration REPAIR. Contradictorily, the more calibration images I used (1k, 5k, 20k), the worse the F1-score got. This phenomenon can also be seen in the other folding configs later.
+I tested the approach we discussed: using a global pruning algorithm to determine the optimal pruning percentages per layer.
 
-Overall, I guess the folding worked fine for the basic conv block, but it isn't that good overall. E.g., for a pairing rate of 0.3 (3.63% weight reduction), I got an F1 score of 0.6571, which is around 2.3 percentage points less than the basic model (YOLOv8m - 0.6791). An accuracy decrease of over 2% for only a 3.6% weight decrease doesn't seem that good to me.
+When applying global pruning with a rate of 0.1, we achieved a 16.22% reduction in parameters. However, we lost a tremendous amount of accuracy. The F1-score fell to 0.26 from our baseline of 0.67.
 
- `results_save/plots/conv5_conv7/comparison_conv5_conv7_compare__Structural_Folding_vs__Pruning_...png`
+Almost all other YOLOv8 pruning algorithms involves heavy backpropagation (fine-tuning) after the pruning step to recover accuracy. We only use a forward pass to recalibrate statistics. 
+* *Lightweight YOLOv8 Real-Time Object Detection via Progressive Pruning and Feature-Aware Knowledge Distillation*
+    * **Reduction:** -20.5% parameters via progressive channel pruning.
+    * **Immediate Impact:** mAP@0.5 dropped to 0.738.
+    * **Recovery:** fine-tuning and knowledge distillation.
+    * **Result:** mAP restored to 0.748 (only a 0.5% drop from baseline).
+    * (https://ieeexplore.ieee.org/document/11166037/)
 
-When I compare the folded version to the pruned version, I can see that for the pruned version, the repair performs better than the basic one (on other layers/configs this is more pronounced). However, the folded version with no repair scored first in the F1 scores on all pairing/pruning levels (0.1, 0.2, 0.3).
-
+* *A Lightweight YOLOv8s Algorithm for Ceiling Fan Blade Defect Detection With Optimized Pruning and Knowledge Distillation* 
+    * **Reduction:** -76.6% parameters via sparse training and pruning.
+    * **Recovery:** extensive fine-tuning and knowledge distillation.
+    * **Result:** Accuracy restored to an mAP of 0.976.
+    * (https://ieeexplore.ieee.org/document/11021420/)
 ***
 
-**2. C2F Block with a Normal Conv Layer (conv4 and conv5)**
- `results_save/plots/conv4_conv5/comparison_conv4_conv5_compare__Structural_Folding_vs__Pruning_...png`
+**3. Global Pruning as a Folding Template**
+`results_save/plots/comparison_Pruned_Ratio_Repair_Folding_Comparison_20260527_134616.png`
 
-Similar things can be seen here. When I take a look at the comparison of folded and pruned, I can see that for 0.1, folded without repair won. For the other two rates (0.2 and 0.3), folded with 1k calibration images won. 
+Next, I extracted the exact layer-wise percentages dictated by the pruning algorithm and applied them as pairing rates for our folding algorithm. *(I skipped the SPPF block since I haven't written a folding handler for it yet, and I protected the earliest conv blocks to preserve basic spatial feature extraction).*
 
-The pruned versions performed worse than the folded ones. But I have to say that the reduction rate is not equal, so this is not a general assumption. E.g., for a pairing/pruning rate of 0.1, it is a 0.88% reduction for folded and a 1.29% reduction for the pruned versions.
+Using the pruning ratios per layer, the folding resulted in a 6% parameter reduction with an F1 score of 0.57 (down from the 0.6791 baseline).
 
+Interestingly, this proves that the pruning algorithm's suggestions are **not optimal** - in my opinion - for our folding approach. We already have a manual config that achieves a similar 6.5% reduction but yields a much higher F1 score of 0.62 (Reference: `results_save/plots/comparison_conv4_to_conv8_Full_compare_of_folded_Versions_20260522_172020.png`). 
 ***
 
-**3. Multiple Layers at Once (conv4 until conv8)**
- `results_save/plots/conv4_to_conv8/comparison_conv4_to_conv8_compare__Structural_Folding_vs__Pruning_20260513_150631.png`
-Lastly, I tried to fold over multiple layers at once (conv4 to conv8). But the results are also not that great in my opinion. 
+**Question:**
+Should I also use backpropagation for the pruning benchmark? 
 
-E.g., at a pairing/pruning rate of 0.1, I got roughly a 6.5% reduction, and again the basic folded version (with no repair) got the highest F1 score. With increasing calibration images, the score got worse.
+On one hand, it feels like an unfair comparison because our folded versions do not use backpropagation (we only do a data-driven forward pass). Under these backprop-free conditions, folding outperforms pruning, which can be seen clearly here:
+`results_save/old/plots_old/conv4_to_conv8/comparison_conv4_to_conv8_compare__Structural_Folding_vs__Pruning_20260513_150631.png` *(This is an older plot, but the conclusion remains valid since our recent fixes only increased the folding accuracy further).*
 
-For a pairing/pruning rate of 0.3, I got a 17.92% reduction for the folded version and a 19.85% reduction for the pruned version. Here again, the best F1-score was the folded one with only 1k calibration images. I also tried to calibrate with 60k here, but it did not change the outcome. However, it got a better score than the 20k version.
+On the other hand, a purely forward-pass pruning model is not used much today - it is normally combined with a backpropagation.
 
-***
-
-**My Question:**
-I am confused that the forward pass calibration does not increase the accuracy in the folded versions (in the pruned versions, the forward pass does work). 
-
-Can you maybe take a look at it to see if I did something wrong? The function is `repair_bn_forward_pass`. I tried to comment everything in `folding_main.py` as well as I could (with the references to the paper) so it is clear what I did.
-
-Of course, we can also just talk about this in the meeting... But I'm a little at a loss as to what else I should try.
-
+Maybe we could move the meeting up by a few days next week—if not, that's fine too—I'll just try a few other things :)
 Thank you very much!!
-
 Lg Manuel

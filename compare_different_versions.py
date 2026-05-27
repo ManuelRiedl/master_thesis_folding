@@ -61,7 +61,7 @@ class FoldingComparator:
         self.results = {}
 
         self.save_dir = "results_save/plots"
-        self.stats_dir = "results_save/save_statistics"
+        self.stats_dir = "results_save/save_statistics_fix"
         os.makedirs(self.save_dir, exist_ok=True)
         os.makedirs(self.stats_dir, exist_ok=True)
 
@@ -446,34 +446,29 @@ class FoldingComparator:
 # --- EXECUTION ---
 if __name__ == "__main__":
     MODELS_TO_COMPARE = [
-        # --- BASELINE ---
-        'weights/yolov8m.pt',
-        # --- GLOBAL PRUNING RATIO 0.05 ---
-        'weights/prune/0.1/yolo_global_pruned_without_repair.pt',
-        'weights/prune/0.1/yolo_global_pruned_forward_pass_repair_calib1000.pt',
-        'weights/prune/0.1/yolo_global_pruned_forward_pass_repair_calib5000.pt',
-        'weights/prune/0.1/yolo_global_pruned_forward_pass_repair_calib20000.pt'
+        "weights/yolov8m.pt",
+        "weights/without_repair_fix/auto/yolo_pruned_ratio_config_folded_without_repair_fix.pt",
+        "weights/forward_pass_repair_fix/auto/yolo_pruned_ratio_config_folded_forward_pass_repair_fix_calib1000.pt",
+        "weights/forward_pass_repair_fix/auto/yolo_pruned_ratio_config_folded_forward_pass_repair_fix_calib5000.pt"
     ]
 
     CUSTOM_LABELS = [
-        "YOLOv8m",
-
-        "Pruned: No Repair",
-        "Pruned: 1k Calib",
-        "Pruned: 5k Calib",
-        "Pruned: 20k Calib"
+        "Baseline",
+        "No Repair",
+        "1k Calib",
+        "5k Calib",
     ]
 
     GROUPS = [
         "Baseline",
-
-        "PR: 0.1",
-        "PR: 0.1",
-        "PR: 0.1",
-        "PR: 0.1"
+        "PR: Auto",
+        "PR: Auto",
+        "PR: Auto",
     ]
 
-    REPORT_TITLE = "Test Analysis: Global Pruning (Ratio 0.1)"
+    REPORT_TITLE = "Pruned Ratio Repair Folding Comparison"
+
+    IMG_PATH = r"coco/images/val2017"
 
     IMG_PATH = r"coco/images/val2017"
 

@@ -1,0 +1,680 @@
+{
+    "input": {
+        "pre": null,
+        "do_folding": false,
+        "num_channels": 3,
+        "consistent_map": null
+    },
+    "model.0.conv": {
+        "pre": "input",
+        "do_folding": false,
+        "num_channels": 48,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.1.conv": {
+        "pre": "model.0.conv",
+        "do_folding": false,
+        "num_channels": 96,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.2.cv1.conv": {
+        "pre": "model.1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.2917,
+        "pr": 0.2795
+    },
+    "model.2.cv2.conv": {
+        "pre": "model.2.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.2.cv1.conv",
+        "raw_prune_ratio": 0.3229,
+        "pr": 0.2795
+    },
+    "model.2.m.0.cv1.conv": {
+        "pre": "model.2.cv1.conv",
+        "do_folding": true,
+        "num_channels": 48,
+        "consistent_map": "model.2.cv1.conv",
+        "raw_prune_ratio": 0.375,
+        "pr": 0.2795
+    },
+    "model.2.m.0.cv2.conv": {
+        "pre": "model.2.cv1.conv",
+        "do_folding": true,
+        "num_channels": 48,
+        "consistent_map": "model.2.cv1.conv",
+        "raw_prune_ratio": 0.2708,
+        "pr": 0.2795
+    },
+    "model.2.m.1.cv1.conv": {
+        "pre": "model.2.cv1.conv",
+        "do_folding": true,
+        "num_channels": 48,
+        "consistent_map": "model.2.cv1.conv",
+        "raw_prune_ratio": 0.1458,
+        "pr": 0.2795
+    },
+    "model.2.m.1.cv2.conv": {
+        "pre": "model.2.cv1.conv",
+        "do_folding": true,
+        "num_channels": 48,
+        "consistent_map": "model.2.cv1.conv",
+        "raw_prune_ratio": 0.2708,
+        "pr": 0.2795
+    },
+    "model.3.conv": {
+        "pre": "model.2.cv2.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.1406,
+        "pr": 0.1406
+    },
+    "model.4.cv1.conv": {
+        "pre": "model.3.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.125,
+        "pr": 0.0823
+    },
+    "model.4.cv2.conv": {
+        "pre": "model.4.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.4.cv1.conv",
+        "raw_prune_ratio": 0.2292,
+        "pr": 0.0823
+    },
+    "model.4.m.0.cv1.conv": {
+        "pre": "model.4.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.4.cv1.conv",
+        "raw_prune_ratio": 0.0625,
+        "pr": 0.0823
+    },
+    "model.4.m.0.cv2.conv": {
+        "pre": "model.4.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.4.cv1.conv",
+        "raw_prune_ratio": 0.0625,
+        "pr": 0.0823
+    },
+    "model.4.m.1.cv1.conv": {
+        "pre": "model.4.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.4.cv1.conv",
+        "raw_prune_ratio": 0.0833,
+        "pr": 0.0823
+    },
+    "model.4.m.1.cv2.conv": {
+        "pre": "model.4.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.4.cv1.conv",
+        "raw_prune_ratio": 0.0625,
+        "pr": 0.0823
+    },
+    "model.4.m.2.cv1.conv": {
+        "pre": "model.4.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.4.cv1.conv",
+        "raw_prune_ratio": 0.0417,
+        "pr": 0.0823
+    },
+    "model.4.m.2.cv2.conv": {
+        "pre": "model.4.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.4.cv1.conv",
+        "raw_prune_ratio": 0.0625,
+        "pr": 0.0823
+    },
+    "model.4.m.3.cv1.conv": {
+        "pre": "model.4.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.4.cv1.conv",
+        "raw_prune_ratio": 0.0312,
+        "pr": 0.0823
+    },
+    "model.4.m.3.cv2.conv": {
+        "pre": "model.4.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.4.cv1.conv",
+        "raw_prune_ratio": 0.0625,
+        "pr": 0.0823
+    },
+    "model.5.conv": {
+        "pre": "model.4.cv2.conv",
+        "do_folding": true,
+        "num_channels": 384,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0651,
+        "pr": 0.0651
+    },
+    "model.6.cv1.conv": {
+        "pre": "model.5.conv",
+        "do_folding": true,
+        "num_channels": 384,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0104,
+        "pr": 0.0245
+    },
+    "model.6.cv2.conv": {
+        "pre": "model.6.cv1.conv",
+        "do_folding": true,
+        "num_channels": 384,
+        "consistent_map": "model.6.cv1.conv",
+        "raw_prune_ratio": 0.0833,
+        "pr": 0.0245
+    },
+    "model.6.m.0.cv1.conv": {
+        "pre": "model.6.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.6.cv1.conv",
+        "raw_prune_ratio": 0.0781,
+        "pr": 0.0245
+    },
+    "model.6.m.0.cv2.conv": {
+        "pre": "model.6.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.6.cv1.conv",
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0245
+    },
+    "model.6.m.1.cv1.conv": {
+        "pre": "model.6.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.6.cv1.conv",
+        "raw_prune_ratio": 0.0365,
+        "pr": 0.0245
+    },
+    "model.6.m.1.cv2.conv": {
+        "pre": "model.6.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.6.cv1.conv",
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0245
+    },
+    "model.6.m.2.cv1.conv": {
+        "pre": "model.6.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.6.cv1.conv",
+        "raw_prune_ratio": 0.0208,
+        "pr": 0.0245
+    },
+    "model.6.m.2.cv2.conv": {
+        "pre": "model.6.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.6.cv1.conv",
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0245
+    },
+    "model.6.m.3.cv1.conv": {
+        "pre": "model.6.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.6.cv1.conv",
+        "raw_prune_ratio": 0.0156,
+        "pr": 0.0245
+    },
+    "model.6.m.3.cv2.conv": {
+        "pre": "model.6.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.6.cv1.conv",
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0245
+    },
+    "model.7.conv": {
+        "pre": "model.6.cv2.conv",
+        "do_folding": true,
+        "num_channels": 576,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0312,
+        "pr": 0.0312
+    },
+    "model.8.cv1.conv": {
+        "pre": "model.7.conv",
+        "do_folding": true,
+        "num_channels": 576,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0017,
+        "pr": 0.0214
+    },
+    "model.8.cv2.conv": {
+        "pre": "model.8.cv1.conv",
+        "do_folding": true,
+        "num_channels": 576,
+        "consistent_map": "model.8.cv1.conv",
+        "raw_prune_ratio": 0.0365,
+        "pr": 0.0214
+    },
+    "model.8.m.0.cv1.conv": {
+        "pre": "model.8.cv1.conv",
+        "do_folding": true,
+        "num_channels": 288,
+        "consistent_map": "model.8.cv1.conv",
+        "raw_prune_ratio": 0.0486,
+        "pr": 0.0214
+    },
+    "model.8.m.0.cv2.conv": {
+        "pre": "model.8.cv1.conv",
+        "do_folding": true,
+        "num_channels": 288,
+        "consistent_map": "model.8.cv1.conv",
+        "raw_prune_ratio": 0.0035,
+        "pr": 0.0214
+    },
+    "model.8.m.1.cv1.conv": {
+        "pre": "model.8.cv1.conv",
+        "do_folding": true,
+        "num_channels": 288,
+        "consistent_map": "model.8.cv1.conv",
+        "raw_prune_ratio": 0.0347,
+        "pr": 0.0214
+    },
+    "model.8.m.1.cv2.conv": {
+        "pre": "model.8.cv1.conv",
+        "do_folding": true,
+        "num_channels": 288,
+        "consistent_map": "model.8.cv1.conv",
+        "raw_prune_ratio": 0.0035,
+        "pr": 0.0214
+    },
+    "model.9.cv1.conv": {
+        "pre": "model.8.cv2.conv",
+        "do_folding": false,
+        "num_channels": 288,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.125,
+        "pr": 0.1163
+    },
+    "model.9.cv2.conv": {
+        "pre": "model.9.cv1.conv",
+        "do_folding": false,
+        "num_channels": 576,
+        "consistent_map": "model.9.cv1.conv",
+        "raw_prune_ratio": 0.1076,
+        "pr": 0.1163
+    },
+    "model.12.cv1.conv": {
+        "pre": "model.9.cv2.conv",
+        "do_folding": true,
+        "num_channels": 384,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.1094,
+        "pr": 0.0929
+    },
+    "model.12.cv2.conv": {
+        "pre": "model.12.cv1.conv",
+        "do_folding": true,
+        "num_channels": 384,
+        "consistent_map": "model.12.cv1.conv",
+        "raw_prune_ratio": 0.1562,
+        "pr": 0.0929
+    },
+    "model.12.m.0.cv1.conv": {
+        "pre": "model.12.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.12.cv1.conv",
+        "raw_prune_ratio": 0.0625,
+        "pr": 0.0929
+    },
+    "model.12.m.0.cv2.conv": {
+        "pre": "model.12.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.12.cv1.conv",
+        "raw_prune_ratio": 0.0677,
+        "pr": 0.0929
+    },
+    "model.12.m.1.cv1.conv": {
+        "pre": "model.12.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.12.cv1.conv",
+        "raw_prune_ratio": 0.0781,
+        "pr": 0.0929
+    },
+    "model.12.m.1.cv2.conv": {
+        "pre": "model.12.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.12.cv1.conv",
+        "raw_prune_ratio": 0.0833,
+        "pr": 0.0929
+    },
+    "model.15.cv1.conv": {
+        "pre": "model.12.cv2.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.2396,
+        "pr": 0.1988
+    },
+    "model.15.cv2.conv": {
+        "pre": "model.15.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.15.cv1.conv",
+        "raw_prune_ratio": 0.3802,
+        "pr": 0.1988
+    },
+    "model.15.m.0.cv1.conv": {
+        "pre": "model.15.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.15.cv1.conv",
+        "raw_prune_ratio": 0.0625,
+        "pr": 0.1988
+    },
+    "model.15.m.0.cv2.conv": {
+        "pre": "model.15.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.15.cv1.conv",
+        "raw_prune_ratio": 0.1042,
+        "pr": 0.1988
+    },
+    "model.15.m.1.cv1.conv": {
+        "pre": "model.15.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.15.cv1.conv",
+        "raw_prune_ratio": 0.1354,
+        "pr": 0.1988
+    },
+    "model.15.m.1.cv2.conv": {
+        "pre": "model.15.cv1.conv",
+        "do_folding": true,
+        "num_channels": 96,
+        "consistent_map": "model.15.cv1.conv",
+        "raw_prune_ratio": 0.2708,
+        "pr": 0.1988
+    },
+    "model.16.conv": {
+        "pre": "model.15.cv2.conv",
+        "do_folding": false,
+        "num_channels": 192,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.1823,
+        "pr": 0.1823
+    },
+    "model.18.cv1.conv": {
+        "pre": "model.16.conv",
+        "do_folding": true,
+        "num_channels": 384,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0625,
+        "pr": 0.1658
+    },
+    "model.18.cv2.conv": {
+        "pre": "model.18.cv1.conv",
+        "do_folding": true,
+        "num_channels": 384,
+        "consistent_map": "model.18.cv1.conv",
+        "raw_prune_ratio": 0.375,
+        "pr": 0.1658
+    },
+    "model.18.m.0.cv1.conv": {
+        "pre": "model.18.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.18.cv1.conv",
+        "raw_prune_ratio": 0.1927,
+        "pr": 0.1658
+    },
+    "model.18.m.0.cv2.conv": {
+        "pre": "model.18.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.18.cv1.conv",
+        "raw_prune_ratio": 0.0885,
+        "pr": 0.1658
+    },
+    "model.18.m.1.cv1.conv": {
+        "pre": "model.18.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.18.cv1.conv",
+        "raw_prune_ratio": 0.1771,
+        "pr": 0.1658
+    },
+    "model.18.m.1.cv2.conv": {
+        "pre": "model.18.cv1.conv",
+        "do_folding": true,
+        "num_channels": 192,
+        "consistent_map": "model.18.cv1.conv",
+        "raw_prune_ratio": 0.099,
+        "pr": 0.1658
+    },
+    "model.19.conv": {
+        "pre": "model.18.cv2.conv",
+        "do_folding": false,
+        "num_channels": 384,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0417,
+        "pr": 0.0417
+    },
+    "model.21.cv1.conv": {
+        "pre": "model.19.conv",
+        "do_folding": true,
+        "num_channels": 576,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0156,
+        "pr": 0.0755
+    },
+    "model.21.cv2.conv": {
+        "pre": "model.21.cv1.conv",
+        "do_folding": true,
+        "num_channels": 576,
+        "consistent_map": "model.21.cv1.conv",
+        "raw_prune_ratio": 0.2118,
+        "pr": 0.0755
+    },
+    "model.21.m.0.cv1.conv": {
+        "pre": "model.21.cv1.conv",
+        "do_folding": true,
+        "num_channels": 288,
+        "consistent_map": "model.21.cv1.conv",
+        "raw_prune_ratio": 0.0556,
+        "pr": 0.0755
+    },
+    "model.21.m.0.cv2.conv": {
+        "pre": "model.21.cv1.conv",
+        "do_folding": true,
+        "num_channels": 288,
+        "consistent_map": "model.21.cv1.conv",
+        "raw_prune_ratio": 0.0799,
+        "pr": 0.0755
+    },
+    "model.21.m.1.cv1.conv": {
+        "pre": "model.21.cv1.conv",
+        "do_folding": true,
+        "num_channels": 288,
+        "consistent_map": "model.21.cv1.conv",
+        "raw_prune_ratio": 0.0694,
+        "pr": 0.0755
+    },
+    "model.21.m.1.cv2.conv": {
+        "pre": "model.21.cv1.conv",
+        "do_folding": true,
+        "num_channels": 288,
+        "consistent_map": "model.21.cv1.conv",
+        "raw_prune_ratio": 0.0208,
+        "pr": 0.0755
+    },
+    "model.22.cv2.0.0.conv": {
+        "pre": "model.21.cv2.conv",
+        "do_folding": false,
+        "num_channels": 64,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv2.0.1.conv": {
+        "pre": "model.22.cv2.0.0.conv",
+        "do_folding": false,
+        "num_channels": 64,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv2.0.2": {
+        "pre": "model.22.cv2.0.1.conv",
+        "do_folding": false,
+        "num_channels": 64,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv2.1.0.conv": {
+        "pre": "model.22.cv2.0.2",
+        "do_folding": false,
+        "num_channels": 64,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv2.1.1.conv": {
+        "pre": "model.22.cv2.1.0.conv",
+        "do_folding": false,
+        "num_channels": 64,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv2.1.2": {
+        "pre": "model.22.cv2.1.1.conv",
+        "do_folding": false,
+        "num_channels": 64,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv2.2.0.conv": {
+        "pre": "model.22.cv2.1.2",
+        "do_folding": false,
+        "num_channels": 64,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv2.2.1.conv": {
+        "pre": "model.22.cv2.2.0.conv",
+        "do_folding": false,
+        "num_channels": 64,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv2.2.2": {
+        "pre": "model.22.cv2.2.1.conv",
+        "do_folding": false,
+        "num_channels": 64,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv3.0.0.conv": {
+        "pre": "model.22.cv2.2.2",
+        "do_folding": false,
+        "num_channels": 192,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv3.0.1.conv": {
+        "pre": "model.22.cv3.0.0.conv",
+        "do_folding": false,
+        "num_channels": 192,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv3.0.2": {
+        "pre": "model.22.cv3.0.1.conv",
+        "do_folding": false,
+        "num_channels": 80,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv3.1.0.conv": {
+        "pre": "model.22.cv3.0.2",
+        "do_folding": false,
+        "num_channels": 192,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv3.1.1.conv": {
+        "pre": "model.22.cv3.1.0.conv",
+        "do_folding": false,
+        "num_channels": 192,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv3.1.2": {
+        "pre": "model.22.cv3.1.1.conv",
+        "do_folding": false,
+        "num_channels": 80,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv3.2.0.conv": {
+        "pre": "model.22.cv3.1.2",
+        "do_folding": false,
+        "num_channels": 192,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv3.2.1.conv": {
+        "pre": "model.22.cv3.2.0.conv",
+        "do_folding": false,
+        "num_channels": 192,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.cv3.2.2": {
+        "pre": "model.22.cv3.2.1.conv",
+        "do_folding": false,
+        "num_channels": 80,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    },
+    "model.22.dfl.conv": {
+        "pre": "model.22.cv3.2.2",
+        "do_folding": false,
+        "num_channels": 1,
+        "consistent_map": null,
+        "raw_prune_ratio": 0.0,
+        "pr": 0.0
+    }
+}
