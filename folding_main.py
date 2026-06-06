@@ -84,7 +84,7 @@ def set_module_by_name(model, name, new_module):
 """
 This function computes the Clustering matrice U by finding similar weights
 """
-def cumpute_cluster_matrix_u(conv_L, conv_next, pr):
+def cumpute_cluster_matrix_u(conv_L, bn_L, conv_next, pr):
     print(
         f"   {C['b']}[Step: K-Means]{C['res']} Finding clusters for {C['bold']}{conv_L.out_channels}{C['res']} channels at paring rate of {pr}...")
     # output channels before and after folding
@@ -94,17 +94,22 @@ def cumpute_cluster_matrix_u(conv_L, conv_next, pr):
     with torch.no_grad():
         # 1. RESHAPE (Flatten) (3.4 - Page 33)
         #    reshape W_L from [C_out, C_in, kernal_H, kernel_W] to [C_out, C_in * kernal_H * kernel_W]
-        #    thats because K-Means does not "work" on a 4D matrix (only 2D)
-        W_l = conv_L.weight.data.reshape(n_original_channels,
-                                         -1)  # -1 => it does figure out the shape on its own 3x3x3 = 27 -> [48,27]
-        #    We need now to match the input dimensions of W_l_next to W_L out dimensions
-        #    The current shape is: [C_next_out, C_next_in, kernal_H, kernal_W] -> [C_out, C_next_out* kernal_H * kernel_W]]
-        #    Since we match the output of L with the input of L+1 we have to reorder the matric before reshaping -> eg we get a [48,864] (96x3x3)
-        W_l_next = conv_next.weight.data.permute(1, 0, 2, 3).reshape((n_original_channels, -1))
-        # 2. MATRICE A (Algorithm 1.2 - Page 26)
-        #     Since we want to minimize the error macros both layers (L, L_next) we have to perform Algorithm 1 (Clustering/K-means) on both
-        #     Therefore we have to combine them into one matrice A = [ W_l | W_l_next^T ] (merged by rows - on top of each other)
-        A = torch.cat([W_l, W_l_next], dim=1).float().cpu().numpy()
+        W_l = conv_L.weight.data.reshape(n_original_channels, -1)
+        # Permute so that next layer's input channels become rows, then flatten the rest.
+        if conv_next is not None:
+            W_l_next = conv_next.weight.data.permute(1, 0, 2, 3).reshape((n_original_channels, -1))
+        else:
+            W_l_next = None
+        # 2. MATRICE A
+        #    [W_l rows | BN γ | BN β | W_{l+1}^T rows]. Including BN γ/β ensures two filters
+        #    that have similar spatial weights but very different BN scaling are NOT clustered.
+        parts = [W_l]
+        if bn_L is not None:
+            parts.append(bn_L.weight.data.view(n_original_channels, 1))  # γ (Σ_s)
+            parts.append(bn_L.bias.data.view(n_original_channels, 1))    # β
+        if W_l_next is not None:
+            parts.append(W_l_next)
+        A = torch.cat(parts, dim=1).float().cpu().numpy()
 
         # 3. Clustering (K-Means) (Algorithm 1/ 3.2 - Page 23/26)
         #     It is a matrice decomposition problem which we can reduce to a K-Means algorithm
@@ -159,6 +164,10 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
             folded_weigh = updated_W_l.reshape(n_folded, *original_shape_L[1:])
             conv_L.weight = nn.Parameter(folded_weigh)
             conv_L.out_channels = n_folded
+            # Guard: if the conv has a bias (e.g. Detect head's final 1x1 conv has bias=True),
+            # fold it with the same M projection. For bias-less convs (BN-followed) this is a no-op.
+            if conv_L.bias is not None:
+                conv_L.bias = nn.Parameter(M @ conv_L.bias.data)
             print(f"      {C['bold']}{C['b']}[Debug: Conv Output Fold]{C['res']} {n_original} -> {n_folded} channels {C['y']}{list(conv_L.weight.shape)}{C['res']}")
 
             # 3. BatchNorm layer (Theorem 3.5.3 Page 29)
@@ -212,9 +221,12 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
             #                                             [ 0, 0, 1, 0 ]
             #                                             [ 0, 0, 0, 1 ]
             #                                             [ 0, 0, 0, 1 ]
+            assert actual_in_channels % n_original == 0, (
+                f"[merge_conv_bn input-fold] consumer '{name}' has in_channels={actual_in_channels} "
+                f"which is not a multiple of n_original={n_original}"
+            )
             num_paths = actual_in_channels // n_original
 
-            """
             if num_paths > 1:
                 print(f"      {C['dim']}[Debug: Concat Block]{C['res']} {C['y']}Detected {num_paths} paths. Expanding U diagonally.{C['res']}")
                 U_to_use = torch.zeros(actual_in_channels, n_folded * num_paths, device=device)
@@ -222,8 +234,7 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
                     U_to_use[i * n_original:(i + 1) * n_original, i * n_folded:(i + 1) * n_folded] = U
                 n_fold_in = n_folded * num_paths
             else:
-            """
-            U_to_use, n_fold_in = U, n_folded
+                U_to_use, n_fold_in = U, n_folded
 
             # Fold Input Weights (Algorithm 1, Step 3)
             W_flat = conv_next.weight.data.permute(1, 0, 2, 3).contiguous().reshape(actual_in_channels, -1)
@@ -254,12 +265,24 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate):
         # We do this in 2 separate ways because if we fold the 96 channels directly into 48 and split it after into 24 - 24
         # If we dont do this it can happen that for example "more" neurons from one side got merged - or neurons from both sides get merged
         # Weight of size [X, 38] cannot be multiplied by input of size [X, 24]
+
+        # bn_cv1 applies channel-wise to ALL n_total cv1 outputs; slice into top/bottom halves
+        # so each cluster sees its own γ/β alongside the conv rows (matches B2 fix above).
+        # get the running statistics of the first cv1 block => So the identity path and the bottleneck paths have them
+        bn_cv1 = get_module_by_name(model, f"{block_name}.cv1.bn")
+        bn_gamma = bn_cv1.weight.data if bn_cv1 is not None else None
+        bn_beta = bn_cv1.bias.data if bn_cv1 is not None else None
+
         #Top half (identity path)
         W_top = cv1.weight.data[:half].reshape(half, -1)
         #Successor is cv2.conv so we use permute(1,0,2,3) to get C_in first so each row = one input channel
         W_cv2_identity = c2f_layer.cv2.conv.weight.data.permute(1, 0, 2, 3)[:half].reshape(half, -1)
-        #A = [W_l | W_{l+1}]
-        A_top = torch.cat([W_top, W_cv2_identity], dim=1).float().cpu().numpy()
+        top_parts = [W_top]
+        if bn_gamma is not None:
+            top_parts.append(bn_gamma[:half].view(half, 1))
+            top_parts.append(bn_beta[:half].view(half, 1))
+        top_parts.append(W_cv2_identity)
+        A_top = torch.cat(top_parts, dim=1).float().cpu().numpy()
         km_top = HKMeans(n_clusters=target_half, random_state=42, n_init=10,n_jobs=-1).fit(A_top)
         for i, lab in enumerate(km_top.labels_):
             U_new[i, lab] = 1.0
@@ -267,14 +290,19 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate):
         #Bottom half (bottleneck paths)
         W_bot = cv1.weight.data[half:].reshape(half, -1)
         W_bn_input = c2f_layer.m[0].cv1.conv.weight.data.permute(1, 0, 2, 3).reshape(half, -1)
-        A_bot = torch.cat([W_bot, W_bn_input], dim=1).float().cpu().numpy()
+        bot_parts = [W_bot]
+        if bn_gamma is not None:
+            bot_parts.append(bn_gamma[half:].view(half, 1))
+            bot_parts.append(bn_beta[half:].view(half, 1))
+        bot_parts.append(W_bn_input)
+        A_bot = torch.cat(bot_parts, dim=1).float().cpu().numpy()
         km_bot = HKMeans(n_clusters=target_half, random_state=42, n_init=10,n_jobs=-1).fit(A_bot)
         for i, lab in enumerate(km_bot.labels_):
             U_new[i + half, lab + target_half] = 1.0
 
         #Fold cv1 -> The input layer before the split layer - where we split into the identity path and the bottleneck layers
+        # (bn_cv1 already fetched above for A_top/A_bot construction)
         bn_cv1_name = f"{block_name}.cv1.bn"
-        bn_cv1 = get_module_by_name(model, bn_cv1_name)
         _, bn_f, _ = merge_conv_bn(cv1, bn_cv1, None, U_new, order='output', name=bn_cv1_name)
         set_module_by_name(model, bn_cv1_name, bn_f)
 
@@ -285,7 +313,7 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate):
             conv1_name = f"{block_name}.m.{i}.cv1.conv"
             conv2_name = f"{block_name}.m.{i}.cv2.conv"
             #for cv1 we can compute a new clustering matrice -> since it doesnt go into the concat connection - only cv2 does
-            U_cv1 = cumpute_cluster_matrix_u(bottleneck.cv1.conv, bottleneck.cv2.conv, pairing_rate)
+            U_cv1 = cumpute_cluster_matrix_u(bottleneck.cv1.conv, bottleneck.cv1.bn, bottleneck.cv2.conv, pairing_rate)
             u_cache[conv1_name] = U_cv1
             u_cache[conv2_name] = U_sliced
             #Adjust the input of the first conv layer inside the bottleneck
@@ -325,6 +353,7 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate):
             U_cv2[row_start:row_start + half, col_start:col_start + target_half] = U_bot
 
         merge_conv_bn(None, None, c2f_layer.cv2.conv, U_cv2, order='input', name=f"{block_name}.cv2.conv")
+
     return U_new
 
 
@@ -334,31 +363,22 @@ def get_module_by_name(model, name):
     return model
 
 
-"""This function fine tunes the folded layers . ONLY this layers get recalibratet (running statistics)"""
+"""This function recalibrates BN running statistics via a forward pass.
+
+Follows the official REPAIR pattern (knowledge/model-folding-universal/core/repair.py:32-50):
+EVERY BatchNorm2d in the model is reset and given momentum=None, then a forward pass
+over the calibration loader populates the running stats as a simple average.
+
+The `folding_plan` argument is kept for callsite compatibility but is ignored — partial
+resets contaminate downstream activations because the un-reset upstream BNs still update
+their running stats in train() mode.
+"""
 def repair_bn_forward_pass(model, loader, device, folding_plan=None, max_samples=1000, verbose=True):
+    if folding_plan is not None and verbose:
+        print(f"   {C['dim']}[REPAIR] Note: folding_plan arg is ignored; resetting ALL BN layers (official behavior).{C['res']}")
     #get all BN layers from the model
-    all_bn_layers = {name: m for name, m in model.named_modules()
+    bn_to_reset = {name: m for name, m in model.named_modules()
               if isinstance(m, nn.BatchNorm2d)}
-    bn_to_reset = {}
-    if folding_plan is not None:
-        # get a set of the actual layers that we folded
-        folded_conv_layers = set(name for name, cfg in folding_plan.items()
-                                 if cfg.get("do_folding", False))
-
-        start_resetting = False
-        # named_modules() iterates in the exact forward-pass execution order
-        for name, m in model.named_modules():
-            # The moment we hit the first folded layer, flip the switch to True
-            if name in folded_conv_layers:
-                start_resetting = True
-
-            # If the switch is flipped AND this module is a BN layer, add it
-            if start_resetting and isinstance(m, nn.BatchNorm2d):
-                bn_to_reset[name] = m
-
-    else:
-        # when no plan is provided => reset all running statistics of all layers
-        bn_to_reset = all_bn_layers
 
     if not bn_to_reset:
         if verbose:
@@ -370,8 +390,7 @@ def repair_bn_forward_pass(model, loader, device, folding_plan=None, max_samples
         bn.reset_running_stats()
     if verbose:
         print(f"\n{C['bold']}{C['cy']}--- REPAIR: BN Forward-Pass Recalibration ---{C['res']}")
-        print(f"   {C['dim']}Resetting {len(bn_to_reset)}/{len(all_bn_layers)} BN layers "
-              f"(folded only):{C['res']}")
+        print(f"   {C['dim']}Resetting {len(bn_to_reset)} BN layers (ALL):{C['res']}")
         for n in sorted(bn_to_reset):
             print(f"      {C['dim']}- {n}{C['res']}")
     #Forward pass => Recalibrate running statistics
@@ -446,11 +465,17 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
             conv_L = get_module_by_name(model, layer_L)
             conv_next = None
             conv_next_name = None
+            # Collect ALL consumers of this folded layer (not just the first).
+            # YOLO's neck Concats / FPN can have multiple consumers of the same source.
+            consumers = []
             for next_name, next_settings in folding_plan.items():
-                if next_settings.get('pre') == layer_L:
-                    conv_next = get_module_by_name(model, next_name)
-                    conv_next_name = next_name
-                    break
+                pre_layer = next_settings.get('pre')
+                # Check if it's a single string match OR if it's a list containing layer_L
+                if pre_layer == layer_L or (isinstance(pre_layer, list) and layer_L in pre_layer):
+                    # We also pass pre_layer so we know if this consumer has multiple sources
+                    consumers.append((next_name, get_module_by_name(model, next_name), pre_layer))
+            if consumers:
+                conv_next_name, conv_next, _ = consumers[0] #(name, module, pre_layer)
             layer_pr = settings.get('pr')
 
             if layer_pr is not None:
@@ -467,7 +492,8 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
                 print(f"   {C['dim']}[Consistent Map]{C['res']} Inheriting U from {ref_mapping}")
                 U_matrix = u_cache[ref_mapping]
             else:
-                U_matrix = cumpute_cluster_matrix_u(conv_L, conv_next, pairing_r)
+                bn_for_cluster = get_module_by_name(model, layer_L.replace(".conv", ".bn"))
+                U_matrix = cumpute_cluster_matrix_u(conv_L, bn_for_cluster, conv_next, pairing_r)
                 u_cache[layer_L] = U_matrix
 
             parts = module_name.split('.')
@@ -486,8 +512,9 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
                 _, bn_folded, _ = merge_conv_bn(conv_L, bn_L, None, U_matrix, order="output", name=bn_name)
                 if bn_folded is not None:
                     set_module_by_name(model, bn_name, bn_folded)
-                if conv_next is not None:
-                    merge_conv_bn(None, None, conv_next, U_matrix, order="input", name=conv_next_name)
+                # Apply input-fold to EVERY consumer (not just the first)
+                for cname, cmod, pre_layer in consumers:
+                    merge_conv_bn(None, None, cmod, U_matrix, order="input", name=cname)
 
             print(f"   {C['g']}Successfully folded {module_name}{C['res']}")
 
@@ -540,9 +567,9 @@ def main():
     # MANUAL PARAMETERS (Used ONLY if EXPERIMENTS_FILE = None !!)
     manual_experiments = [
         {
-            "config": "config_folding/yolo_pruned_ratio_config.json",  # New config
-            "pairing_rates": ["auto"],  # Triggers the JSON-reading logic
-            "calib_images": [1000,5000],
+            "config": "config_folding/yolo_conv4_conv5.json",
+            "pairing_rates": [0.1005],
+            "calib_images": [1000],
             "repair": [True]
         }
     ]
