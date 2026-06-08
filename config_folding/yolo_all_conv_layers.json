@@ -52,29 +52,5 @@
         "do_folding": false,
         "num_channels": 576,
         "consistent_map": null
-    },
-    "model.16.conv": {
-        "pre": "model.15.cv2.conv",
-        "do_folding": true,
-        "num_channels": 192,
-        "consistent_map": null
-    },
-    "model.18.cv1.conv": {
-        "pre": "model.16.conv",
-        "do_folding": false,
-        "num_channels": 192,
-        "consistent_map": null
-    },
-    "model.19.conv": {
-        "pre": "model.18.cv2.conv",
-        "do_folding": true,
-        "num_channels": 384,
-        "consistent_map": null
-    },
-    "model.21.cv1.conv": {
-        "pre": "model.19.conv",
-        "do_folding": false,
-        "num_channels": 384,
-        "consistent_map": null
     }
 }

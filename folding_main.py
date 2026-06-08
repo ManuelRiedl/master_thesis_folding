@@ -698,7 +698,7 @@ def main():
     WEIGHTS_PATH = "weights/yolov8m_relu.pt"
     CALIB_DS = "coco/images/train2017"
     #if this is None => manual experimen is used
-    EXPERIMENTS_FILE = None
+    EXPERIMENTS_FILE = "config_experiments/experiment_5.json"
 
     # MANUAL PARAMETERS (Used ONLY if EXPERIMENTS_FILE = None !!)
     manual_experiments = [

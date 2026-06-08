@@ -1,0 +1,24 @@
+============================================================
+  Model Statistics Report
+============================================================
+  Label        : PR 0.3: No Repair
+  Model Path   : weights/no_repair/0.3/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.3_c2f_true_no_repair.pt
+  Saved at     : 2026-06-08 22:52:25
+============================================================
+
+  ARCHITECTURE
+  Parameters (M)        : 20.3298
+  GFLOPs                : 64.5573
+
+  ACCURACY
+  mAP@50                : 0.0075
+  mAP@50-95             : 0.0050
+  Precision             : 0.0512
+  Recall                : 0.0229
+  F1-Score              : 0.0316
+
+  CONFIDENCE / DETECTION
+  Avg Confidence        : 0.3660
+  Avg Active Anchors    : 0.2
+
+============================================================

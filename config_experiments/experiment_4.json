@@ -1,0 +1,32 @@
+[
+  {
+    "config": "config_folding/yolo_fold_frontend_auto_target_2086300.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [1000, 5000],
+    "repair": [true]
+  },
+  {
+    "config": "config_folding/yolo_fold_frontend_auto_target_3129451.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [1000, 5000],
+    "repair": [true]
+  },
+   {
+    "config": "config_folding/yolo_fold_frontend_auto_target_4172601.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [1000, 5000],
+    "repair": [true]
+  },
+  {
+    "config": "config_folding/yolo_fold_frontend_auto_target_5215752.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [1000, 5000],
+    "repair": [true]
+  },
+  {
+    "config": "config_folding/yolo_fold_frontend_auto_target_6258902.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [1000, 5000],
+    "repair": [true]
+  }
+]

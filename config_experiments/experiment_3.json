@@ -1,14 +1,20 @@
 [
   {
-    "config": "config_folding/NEW_yolo_conv4_conv5.json",
-    "pairing_rates": [0.1, 0.2],
-    "calib_images": [1000, 20000],
+    "config": "generated_auto_plan_target_1890000.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [1000, 5000],
     "repair": [true]
   },
   {
-    "config": "config_folding/NEW_yolo_conv5_conv7.json",
-    "pairing_rates": [0.1, 0.2],
-    "calib_images": [1000, 20000],
+    "config": "generated_auto_plan_target_3600000.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [1000, 5000],
+    "repair": [true]
+  },
+  {
+    "config": "generated_auto_plan_target_5200000.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [1000, 5000],
     "repair": [true]
   }
 ]
