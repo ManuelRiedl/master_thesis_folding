@@ -1,7 +1,6 @@
 import os
 import yaml
 import torch
-from numpy import random
 import random
 from torch.utils.data import DataLoader
 from ultralytics import YOLO
@@ -11,6 +10,7 @@ from hkmeans import HKMeans
 import utils_new
 import cv2
 import itertools
+import numpy as np
 import json
 from torch.utils.data import Subset, DataLoader
 import copy
@@ -26,21 +26,97 @@ C = {
 # We save the clustering matrice U -> For bottleneck layers (we have to use the same matrice) (3.5.3. Residual layers)
 u_cache = {}
 
-def save_model(model, yolo_obj, type_name, rate, config_name, num_calib_images=None):
+
+def fuse_bn_into_conv(conv, bn):
+    with torch.no_grad():
+        gamma = bn.weight.data.clone()
+        beta = bn.bias.data.clone()
+        mean = bn.running_mean.data.clone()
+        var = bn.running_var.data.clone()
+        eps = bn.eps
+
+        scale = gamma / torch.sqrt(var + eps)
+        conv.weight.data = conv.weight.data * scale.view(-1, 1, 1, 1)
+
+        if conv.bias is not None:
+            conv.bias.data = scale * (conv.bias.data - mean) + beta
+        else:
+            conv.bias = nn.Parameter(scale * (0 - mean) + beta)
+
+        bn.weight.data.fill_(1.0)
+        bn.bias.data.fill_(0.0)
+        bn.running_mean.data.fill_(0.0)
+        bn.running_var.data.fill_(1.0)
+
+
+def get_average_correlation(U, W_flat):
+    n_folded = U.shape[1]
+    avg_corr = np.zeros(n_folded)
+    U_np = U.cpu().numpy()
+    for cluster_idx in range(n_folded):
+        members = np.where(U_np[:, cluster_idx] > 0)[0]
+        if len(members) <= 1:
+            continue
+        pairs = [(m, n) for m, n in itertools.product(members, members) if m != n]
+        total = 0.0
+        for m, n in pairs:
+            a = W_flat[m].flatten()
+            b = W_flat[n].flatten()
+            denom = np.sqrt((a @ a) * (b @ b))
+            if denom > 0:
+                total += (a @ b) / denom
+        avg_corr[cluster_idx] = total / len(pairs)
+    return torch.tensor(avg_corr, device="cuda", dtype=torch.float32)
+
+
+def fuse_all_batchnorms(model):
+    pairs = []
+    for name, mod in model.named_modules():
+        if isinstance(mod, nn.BatchNorm2d):
+            conv_name = name.replace(".bn", ".conv")
+            try:
+                conv_mod = get_module_by_name(model, conv_name)
+                if isinstance(conv_mod, nn.Conv2d):
+                    pairs.append((conv_name, conv_mod, name, mod))
+            except:
+                pass
+    print(f"   {C['dim']}[Fold-AR] Fusing {len(pairs)} (Conv, BN) pairs...{C['res']}")
+    for conv_name, conv_mod, bn_name, bn_mod in pairs:
+        fuse_bn_into_conv(conv_mod, bn_mod)
+    print(f"   {C['g']}[Fold-AR] All BN layers fused into their convolutions.{C['res']}")
+
+
+def save_model(model, yolo_obj, repair_mode, pairing_rate, config_base_name, fold_c2f_output, num_calib_images=None):
     print(f"\n{C['dim']}Saving folded model into native YOLO dictionary format...{C['res']}")
-    ckpt = yolo.ckpt if hasattr(yolo, 'ckpt') else {}
-    #we save the model as fp16 - but the rest of the code assumes fp32
+    ckpt = yolo_obj.ckpt if hasattr(yolo_obj, 'ckpt') else {}
+    # we save the model as fp16 - but the rest of the code assumes fp32
     ckpt['model'] = copy.deepcopy(model).half()
     if hasattr(model, 'names'):
         ckpt['names'] = model.names
 
-    target_dir = os.path.join("weights", str(type_name), str(rate))
+    # 1. Map the internal repair modes to your clean folder names
+    mode_dir_map = {
+        "NO_REPAIR": "no_repair",
+        "APPROX_REPAIR": "data_free_repair",
+        "REPAIR": "data_driven_repair"
+    }
+    repair_dir = mode_dir_map.get(repair_mode, "unknown_repair")
+
+    # 2. Build the nested directory structure
+    c2f_dir = f"c2f_out_fold_{str(fold_c2f_output).lower()}"
+    target_dir = os.path.join("weights", repair_dir, str(pairing_rate), c2f_dir)
     os.makedirs(target_dir, exist_ok=True)
 
-    if num_calib_images is None:
-        file_name = f"{config_name}_folded_{type_name}.pt"
-    else:
-        file_name = f"{config_name}_folded_{type_name}_calib{num_calib_images}.pt"
+    # 3. Build the comprehensive filename
+    # Example: yolo_conv4_conv5_pr0.1005_c2f_true_data_free_repair.pt
+    file_name = f"{config_base_name}_pr{pairing_rate}_c2f_{str(fold_c2f_output).lower()}_{repair_dir}"
+
+    # Only append the calibration number if it was an actual data-driven repair
+    if repair_mode == "REPAIR" and num_calib_images is not None:
+        file_name += f"_calib{num_calib_images}"
+
+    file_name += ".pt"
+
     save_path = os.path.join(target_dir, file_name)
     torch.save(ckpt, save_path)
     print(f"{C['g']}{C['bold']}Model successfully saved to {save_path}!{C['res']}")
@@ -143,7 +219,7 @@ def get_projection_matrix(U):
 This function merges weights based on the matrice U for a conv layer followed by a bn layer
 The order argument defines if we merge the input weights or adjust the output
 """
-def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
+def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown", approximate_repair=False):
     if U is None:
         return None, None, None
 
@@ -174,24 +250,24 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
             new_bn = None
             if bn_L is not None:
                 new_bn = nn.BatchNorm2d(n_folded).to(device).to(bn_L.weight.dtype)
-                new_bn.weight = nn.Parameter(M @ bn_L.weight.data)
-                new_bn.bias = nn.Parameter(M @ bn_L.bias.data)
-                """
-                # we cant average the stds because it is a squared quantity
-                # we would overestimate the true merged variance -> so we need to average before stds (inverse stds)
-                inv_stds = 1.0 / torch.sqrt(bn_L.running_var.data + 1e-6)
-                new_running_mean_normed = M @ (bn_L.running_mean.data * inv_stds)
-                new_inv_stds = M @ inv_stds
-                new_running_var = (1.0 / (new_inv_stds + 1e-6)) ** 2
-                new_bn.running_mean = new_running_mean_normed * torch.sqrt(new_running_var)
-                # Average running_var in std-dev space — prevents overestimation
-                new_bn.running_var = new_running_var
-                """
-                USE_ARITHMETIC_BN_MERGE = False  # Set to True to test Option B
-                if USE_ARITHMETIC_BN_MERGE:
-                    new_bn.running_mean = M @ bn_L.running_mean.data
-                    new_bn.running_var = M @ bn_L.running_var.data
+
+                if approximate_repair:
+                    # --- Fold-AR: Data-Free Repair ---
+                    new_bn.running_mean.data.fill_(0.0)
+                    new_bn.running_var.data.fill_(1.0)
+                    new_bn.weight.data = M @ bn_L.weight.data
+                    new_bn.bias.data = M @ bn_L.bias.data
+
+                    W_original = W_l_reshaped.cpu().numpy()
+                    avg_corr = get_average_correlation(U, W_original)
+                    n_c = torch.sum(U, dim=0).to(device)
+                    scale = torch.sqrt(n_c / (1 + (n_c - 1) * avg_corr.to(device)))
+                    new_bn.weight.data = new_bn.weight.data * scale
+                    print(
+                        f"      {C['b']}[Debug: BN Fold]{C['res']} Fold-AR correlation applied to {n_folded} channels")
                 else:
+                    # --- Fold-R: Standard Folding ---
+                    """
                     # we cant average the stds because it is a squared quantity
                     # we would overestimate the true merged variance -> so we need to average before stds (inverse stds)
                     inv_stds = 1.0 / torch.sqrt(bn_L.running_var.data + 1e-6)
@@ -201,7 +277,25 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
                     new_bn.running_mean = new_running_mean_normed * torch.sqrt(new_running_var)
                     # Average running_var in std-dev space — prevents overestimation
                     new_bn.running_var = new_running_var
-                print(f"      {C['b']}[Debug: BN Fold]{C['res']} BN channels updated to a shape of {C['bold']}{n_folded}{C['res']}")
+                    """
+                    USE_ARITHMETIC_BN_MERGE = False  # Set to True to test Option B
+                    new_bn.weight = nn.Parameter(M @ bn_L.weight.data)
+                    new_bn.bias = nn.Parameter(M @ bn_L.bias.data)
+                    if USE_ARITHMETIC_BN_MERGE:
+                        new_bn.running_mean = M @ bn_L.running_mean.data
+                        new_bn.running_var = M @ bn_L.running_var.data
+                    else:
+                        # we cant average the stds because it is a squared quantity
+                        # we would overestimate the true merged variance -> so we need to average before stds (inverse stds)
+                        inv_stds = 1.0 / torch.sqrt(bn_L.running_var.data + 1e-6)
+                        new_running_mean_normed = M @ (bn_L.running_mean.data * inv_stds)
+                        new_inv_stds = M @ inv_stds
+                        new_running_var = (1.0 / (new_inv_stds + 1e-6)) ** 2
+                        new_bn.running_mean = new_running_mean_normed * torch.sqrt(new_running_var)
+                        # Average running_var in std-dev space — prevents overestimation
+                        new_bn.running_var = new_running_var
+                    print(
+                        f"      {C['b']}[Debug: BN Fold]{C['res']} BN channels updated to a shape of {C['bold']}{n_folded}{C['res']}")
             return conv_L, new_bn, conv_next
 
         elif order == "input" and conv_next is not None:
@@ -248,7 +342,7 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown"):
 """
 This function handles c2f layers - Bottleneck layers use the same U matrice
 """
-def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate,fold_c2f_output=False):
+def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate,fold_c2f_output=False,approximate_repair=False):
     with torch.no_grad():
         device = c2f_layer.cv1.conv.weight.device
         # The first is the identity path (splitting by 50%)
@@ -303,7 +397,7 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate,fold_c
         #Fold cv1 -> The input layer before the split layer - where we split into the identity path and the bottleneck layers
         # (bn_cv1 already fetched above for A_top/A_bot construction)
         bn_cv1_name = f"{block_name}.cv1.bn"
-        _, bn_f, _ = merge_conv_bn(cv1, bn_cv1, None, U_new, order='output', name=bn_cv1_name)
+        _, bn_f, _ = merge_conv_bn(cv1, bn_cv1, None, U_new, order='output', name=bn_cv1_name,approximate_repair=approximate_repair)
         set_module_by_name(model, bn_cv1_name, bn_f)
 
         #Fold the Bottleneck Layers -> We use the bottom "half" of the clustering matrice -> We use the same for all bottleneck cv2 layers
@@ -317,18 +411,18 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate,fold_c
             u_cache[conv1_name] = U_cv1
             u_cache[conv2_name] = U_sliced
             #Adjust the input of the first conv layer inside the bottleneck
-            merge_conv_bn(None, None, bottleneck.cv1.conv, U_sliced, order='input', name=conv1_name)
+            merge_conv_bn(None, None, bottleneck.cv1.conv, U_sliced, order='input', name=conv1_name,approximate_repair=approximate_repair)
             # fold BN1
             bn_b1_name = f"{block_name}.m.{i}.cv1.bn"
             bn_b1 = get_module_by_name(model, bn_b1_name)
-            _, b1_f, _ = merge_conv_bn(bottleneck.cv1.conv, bn_b1, None, U_cv1, order='output', name=bn_b1_name)
+            _, b1_f, _ = merge_conv_bn(bottleneck.cv1.conv, bn_b1, None, U_cv1, order='output', name=bn_b1_name,approximate_repair=approximate_repair)
             set_module_by_name(model, bn_b1_name, b1_f)
             # Adjust the input of the second conv layer
-            merge_conv_bn(None, None, bottleneck.cv2.conv, U_cv1, order='input', name=conv2_name)
+            merge_conv_bn(None, None, bottleneck.cv2.conv, U_cv1, order='input', name=conv2_name,approximate_repair=approximate_repair)
             # fold BN2
             bn_b2_name = f"{block_name}.m.{i}.cv2.bn"
             bn_b2 = get_module_by_name(model, bn_b2_name)
-            _, b2_f, _ = merge_conv_bn(bottleneck.cv2.conv, bn_b2, None, U_sliced, order='output', name=bn_b2_name)
+            _, b2_f, _ = merge_conv_bn(bottleneck.cv2.conv, bn_b2, None, U_sliced, order='output', name=bn_b2_name,approximate_repair=approximate_repair)
             set_module_by_name(model, bn_b2_name, b2_f)
 
         # Adjust the input of the last conv Layer in the bottleneck -> The concat layer is handled inside the function
@@ -352,7 +446,7 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate,fold_c
             col_start = (i + 2) * target_half
             U_cv2[row_start:row_start + half, col_start:col_start + target_half] = U_bot
 
-        merge_conv_bn(None, None, c2f_layer.cv2.conv, U_cv2, order='input', name=f"{block_name}.cv2.conv")
+        merge_conv_bn(None, None, c2f_layer.cv2.conv, U_cv2, order='input', name=f"{block_name}.cv2.conv",approximate_repair=approximate_repair)
 
         if fold_c2f_output:
             print(f"   {C['cy']}{C['bold']}[C2F Debug] Folding the 1x1 output projection layer (cv2){C['res']}")
@@ -366,7 +460,7 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate,fold_c
 
             # 3. Apply the Output Fold
             _, bn_f_out, _ = merge_conv_bn(c2f_layer.cv2.conv, bn_cv2_out, None, U_cv2_output, order='output',
-                                           name=bn_cv2_out_name)
+                                           name=bn_cv2_out_name,approximate_repair=approximate_repair)
             if bn_f_out is not None:
                 set_module_by_name(model, bn_cv2_out_name, bn_f_out)
 
@@ -442,14 +536,14 @@ def repair_bn_forward_pass(model, loader, device, folding_plan=None, max_samples
     return model
 
 
-def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib_images, do_repair,fold_c2f_output,
+def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib_images, repair_mode,fold_c2f_output,
                            calib_ds="coco/labels/train2017"):
     # load yolo weights
     filename = os.path.basename(config_path)
-    config_name = f"{os.path.splitext(filename)[0]}_c2f_{str(fold_c2f_output).lower()}"
+    config_base_name = os.path.splitext(os.path.basename(config_path))[0]
     print(f"\n{C['bold']}============================================================{C['res']}")
     print(
-        f"{C['b']}STARTING RUN: Config: {config_name} | PR: {pairing_rate} | Calib N: {number_calib_images}{C['res']}")
+        f"{C['b']}STARTING RUN: Config: {config_base_name} | PR: {pairing_rate} | Calib N: {number_calib_images} | C2F Out Fold: {fold_c2f_output}{C['res']}")
     print(f"{C['bold']}============================================================{C['res']}")
     yolo = YOLO(weights_path)
     model = yolo.model.eval()
@@ -466,6 +560,10 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
         exit(-1)
 
     print(f"\n{C['bold']}[BEFORE FOLDING]{C['res']}")
+    approx_repair = (repair_mode == "APPROX_REPAIR")
+    if approx_repair:
+        print(f"\n{C['bold']}{C['cy']}--- Fold-AR: Fusing BN into Conv (pre-folding) ---{C['res']}")
+        fuse_all_batchnorms(model)
     initial_params = utils_new.count_parameters(model)
     print(f"Total Parameters: {C['bold']}{initial_params:,}{C['res']}")
 
@@ -517,7 +615,7 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
 
             if "C2f" in str(type(c2f_candidate)) and "cv1.conv" in module_name:
                 # 1. Fold the C2f block
-                U_final = c2f_layer_folding(c2f_candidate, U_matrix, model, c2f_block_name, pairing_r,fold_c2f_output)
+                U_final = c2f_layer_folding(c2f_candidate, U_matrix, model, c2f_block_name, pairing_r, fold_c2f_output,approx_repair)
                 u_cache[layer_L] = U_final
                 for inner_name in folding_plan.keys():
                     if c2f_block_name in inner_name:
@@ -542,19 +640,19 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
                                     u_cache[s] if s in u_cache else torch.eye(get_module_by_name(model, s).out_channels,
                                                                               device=device) for s in pre_layer]
                                 merge_conv_bn(None, None, cmod, torch.block_diag(*u_blocks), order="input",
-                                              name=next_name)
+                                              name=next_name,approximate_repair=approx_repair)
                             else:
-                                merge_conv_bn(None, None, cmod, u_cache[c2f_out_name], order="input", name=next_name)
+                                merge_conv_bn(None, None, cmod, u_cache[c2f_out_name], order="input", name=next_name,approximate_repair=approx_repair)
                             processed_consumers.add(next_name)
             else:
                 # Standard backbone folding
                 bn_name = layer_L.replace(".conv", ".bn")
                 bn_L = get_module_by_name(model, bn_name)
-                _, bn_folded, _ = merge_conv_bn(conv_L, bn_L, None, U_matrix, order="output", name=bn_name)
+                _, bn_folded, _ = merge_conv_bn(conv_L, bn_L, None, U_matrix, order="output", name=bn_name,approximate_repair=approx_repair)
                 if bn_folded is not None:
                     set_module_by_name(model, bn_name, bn_folded)
                 for cname, cmod, _ in consumers:
-                    merge_conv_bn(None, None, cmod, U_matrix, order="input", name=cname)
+                    merge_conv_bn(None, None, cmod, U_matrix, order="input", name=cname,approximate_repair=approx_repair)
 
             print(f"   {C['g']}Successfully folded {module_name}{C['res']}")
 
@@ -572,16 +670,24 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
         f"\n{C['bold']}Total Parameters: {final_params:,} ({C['g']}{reduction:.2f}% reduction{C['res']}{C['bold']}){C['res']}")
     utils_new.test_forward_pass(model, device)
 
+
+
     # Save and Repair
-    save_model(model, yolo, "without_repair_fix", pairing_rate, config_name)
-    if do_repair:
+    if repair_mode == "APPROX_REPAIR":
+        print(f"\n{C['bold']}{C['g']}Fold-AR complete. No forward pass needed.{C['res']}")
+        save_model(model, yolo, repair_mode, pairing_rate, config_base_name, fold_c2f_output)
+
+    elif repair_mode == "REPAIR":
         full_dataset = utils_new.COCOImageFolder(image_dir=calib_ds, imgsz=640, max_images=None)
         random_indices = random.sample(range(len(full_dataset)), number_calib_images)
         train_loader = DataLoader(Subset(full_dataset, random_indices), batch_size=16, shuffle=True, num_workers=2,
                                   pin_memory=True)
         repair_bn_forward_pass(model, train_loader, device, folding_plan=folding_plan, max_samples=number_calib_images)
-        save_model(model, yolo, f"forward_pass_repair_fix", pairing_rate, config_name,
+        save_model(model, yolo, repair_mode, pairing_rate, config_base_name, fold_c2f_output,
                    num_calib_images=number_calib_images)
+    else:
+        # save the model by stadard before apply REPAIR
+        save_model(model, yolo, "NO_REPAIR", pairing_rate, config_base_name, fold_c2f_output)
 
     del model
     del yolo
@@ -589,7 +695,7 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
 
 
 def main():
-    WEIGHTS_PATH = "weights/yolov8m.pt"
+    WEIGHTS_PATH = "weights/yolov8m_relu.pt"
     CALIB_DS = "coco/images/train2017"
     #if this is None => manual experimen is used
     EXPERIMENTS_FILE = None
@@ -597,11 +703,11 @@ def main():
     # MANUAL PARAMETERS (Used ONLY if EXPERIMENTS_FILE = None !!)
     manual_experiments = [
         {
-            "config": "config_folding/yolo_conv4_conv5.json",
-            "pairing_rates": [0.1005, 0.1006],
-            "calib_images": [1000],
-            "repair": [True, False],
-            "fold_c2f_output": [True, False]
+            "config": "config_folding/yolo_conv4_to_conv8.json",
+            "pairing_rates": [0.100000001, 0.200000001, 0.300000001],
+            "calib_images": [5000],
+            "repair_mode": ["APPROX_REPAIR"],
+            "fold_c2f_output": [True]
         }
     ]
 
@@ -623,11 +729,11 @@ def main():
         combinations = itertools.product(
             exp.get("pairing_rates", [0.1]),
             exp.get("calib_images", [1000]),
-            exp.get("repair", [True]),
+            exp.get("repair_mode", ["NO_REPAIR"]),
             exp.get("fold_c2f_output", [False])
         )
 
-        for pr, calib_n, do_rep, fold_c2f in combinations:
+        for pr, calib_n, rep_mode, fold_c2f in combinations:
             global u_cache
             u_cache = {}
 
@@ -636,7 +742,7 @@ def main():
                 config_path=config_file,
                 pairing_rate=pr,
                 number_calib_images=calib_n,
-                do_repair=do_rep,
+                repair_mode=rep_mode,
                 fold_c2f_output=fold_c2f,
                 calib_ds=CALIB_DS
             )
