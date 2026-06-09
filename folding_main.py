@@ -263,7 +263,7 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown", ap
                 new_bn = nn.BatchNorm2d(n_folded).to(device).to(bn_L.weight.dtype)
 
                 if approximate_repair:
-                    # --- Fold-AR: Data-Free Repair ---
+                    #Fold-AR: Data-Free Repair
                     new_bn.running_mean.data.fill_(0.0)
                     new_bn.running_var.data.fill_(1.0)
                     new_bn.weight.data = M @ bn_L.weight.data
@@ -277,7 +277,7 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown", ap
                     print(
                         f"      {C['b']}[Debug: BN Fold]{C['res']} Fold-AR correlation applied to {n_folded} channels")
                 else:
-                    # --- Fold-R: Standard Folding ---
+                    #Fold-R: Standard Folding
                     """
                     # we cant average the stds because it is a squared quantity
                     # we would overestimate the true merged variance -> so we need to average before stds (inverse stds)
@@ -289,7 +289,7 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown", ap
                     # Average running_var in std-dev space — prevents overestimation
                     new_bn.running_var = new_running_var
                     """
-                    USE_ARITHMETIC_BN_MERGE = False  # Set to True to test Option B
+                    USE_ARITHMETIC_BN_MERGE = False  #True for Option B
                     new_bn.weight = nn.Parameter(M @ bn_L.weight.data)
                     new_bn.bias = nn.Parameter(M @ bn_L.bias.data)
                     if USE_ARITHMETIC_BN_MERGE:
@@ -481,7 +481,6 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate,fold_c
             print(
                 f"   {C['cy']}{C['dim']}[C2F Debug] Skipping output fold for {block_name}.cv2.conv (C2F Fold was set to FALSE){C['res']}")
 
-        # ---> END NEW CODE <---
     return U_new
 
 
