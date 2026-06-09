@@ -14,7 +14,7 @@ import numpy as np
 import json
 from torch.utils.data import Subset, DataLoader
 import copy
-
+import re
 #disable ultralytics logs
 os.environ['YOLO_VERBOSE'] = 'False'
 os.environ['YOLO_SKIP_CHECK'] = 'True'
@@ -86,7 +86,7 @@ def fuse_all_batchnorms(model):
     print(f"   {C['g']}[Fold-AR] All BN layers fused into their convolutions.{C['res']}")
 
 
-def save_model(model, yolo_obj, repair_mode, pairing_rate, config_base_name, fold_c2f_output, num_calib_images=None):
+def save_model(model, yolo_obj, repair_mode, pairing_rate, config_base_name, fold_c2f_output, weights_path, num_calib_images=None):
     print(f"\n{C['dim']}Saving folded model into native YOLO dictionary format...{C['res']}")
     ckpt = yolo_obj.ckpt if hasattr(yolo_obj, 'ckpt') else {}
     # we save the model as fp16 - but the rest of the code assumes fp32
@@ -102,12 +102,23 @@ def save_model(model, yolo_obj, repair_mode, pairing_rate, config_base_name, fol
     }
     repair_dir = mode_dir_map.get(repair_mode, "unknown_repair")
 
-    # 2. Build the nested directory structure
+    # 2. Extract YOLO version and variant from weights_path
+    # Example: "weights/yolov8m.pt" -> filename: "yolov8m.pt" -> base: "yolov8m"
+    weights_filename = os.path.basename(weights_path)
+    model_variant = os.path.splitext(weights_filename)[0]  # e.g., "yolov8m"
+
+    # Extract the family/version (e.g., "yolov8" from "yolov8m" or "yolo11" from "yolo11n")
+    # This regex looks for 'yolo' followed by numbers.
+    match = re.match(r'(yolo\w*\d+)', model_variant, re.IGNORECASE)
+    yolo_version = match.group(1).lower() if match else "unknown_yolo"
+
+    # 3. Build the nested directory structure
+    # Format: weights/yolov8/yolov8m/no_repair/0.1/c2f_out_fold_true
     c2f_dir = f"c2f_out_fold_{str(fold_c2f_output).lower()}"
-    target_dir = os.path.join("weights", repair_dir, str(pairing_rate), c2f_dir)
+    target_dir = os.path.join("weights", yolo_version, model_variant, repair_dir, str(pairing_rate), c2f_dir)
     os.makedirs(target_dir, exist_ok=True)
 
-    # 3. Build the comprehensive filename
+    # 4. Build the comprehensive filename
     # Example: yolo_conv4_conv5_pr0.1005_c2f_true_data_free_repair.pt
     file_name = f"{config_base_name}_pr{pairing_rate}_c2f_{str(fold_c2f_output).lower()}_{repair_dir}"
 
@@ -675,7 +686,7 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
     # Save and Repair
     if repair_mode == "APPROX_REPAIR":
         print(f"\n{C['bold']}{C['g']}Fold-AR complete. No forward pass needed.{C['res']}")
-        save_model(model, yolo, repair_mode, pairing_rate, config_base_name, fold_c2f_output)
+        save_model(model, yolo, repair_mode, pairing_rate, config_base_name,weights_path, fold_c2f_output)
 
     elif repair_mode == "REPAIR":
         full_dataset = utils_new.COCOImageFolder(image_dir=calib_ds, imgsz=640, max_images=None)
@@ -683,11 +694,11 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
         train_loader = DataLoader(Subset(full_dataset, random_indices), batch_size=16, shuffle=True, num_workers=2,
                                   pin_memory=True)
         repair_bn_forward_pass(model, train_loader, device, folding_plan=folding_plan, max_samples=number_calib_images)
-        save_model(model, yolo, repair_mode, pairing_rate, config_base_name, fold_c2f_output,
+        save_model(model, yolo, repair_mode, pairing_rate, config_base_name, fold_c2f_output,weights_path,
                    num_calib_images=number_calib_images)
     else:
         # save the model by stadard before apply REPAIR
-        save_model(model, yolo, "NO_REPAIR", pairing_rate, config_base_name, fold_c2f_output)
+        save_model(model, yolo, "NO_REPAIR", pairing_rate, config_base_name,weights_path, fold_c2f_output)
 
     del model
     del yolo
@@ -695,7 +706,7 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
 
 
 def main():
-    WEIGHTS_PATH = "weights/yolov8m_relu.pt"
+    WEIGHTS_PATH = "weights/yolov8/yolov8m/yolov8m.pt"
     CALIB_DS = "coco/images/train2017"
     #if this is None => manual experimen is used
     EXPERIMENTS_FILE = "config_experiments/experiment_5.json"
