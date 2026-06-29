@@ -1,0 +1,15 @@
+{
+  "label": "PR 0.3: No Repair",
+  "params": 6544478,
+  "gflops": 19.020788,
+  "mAP50": 6.25e-05,
+  "mAP50-95": 4.3750000000000006e-05,
+  "precision": 0.00625,
+  "recall": 4.670278348589575e-06,
+  "f1_score": 9.332090209329383e-06,
+  "avg_conf": 0.0,
+  "confs_list": [
+    0.0
+  ],
+  "avg_anchors": 0.0
+}

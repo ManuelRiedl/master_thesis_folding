@@ -470,7 +470,7 @@ if __name__ == "__main__":
         exit(-1)
 
     #configuration file
-    example_config = "config_folding/yolov8_m/yolov8_medium_conv4_to_conv8.json"
+    example_config = "config_folding/yolov8_m/yolov8_medium_full_architecture_protected.json"
     output_directory = "config_folding/auto_plan"
     #pairing ratios we want to target -> each of them is a seperate config file eg:yolov8_medium_conv4_to_conv8_0.025.json
     target_ratios = [0.025,0.05, 0.075,0.10,0.125, 0.15, 0.20, 0.225, 0.25]
