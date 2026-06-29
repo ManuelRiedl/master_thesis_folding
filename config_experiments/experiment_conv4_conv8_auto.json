@@ -1,0 +1,69 @@
+[
+    {
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/auto_plan/yolov8_medium_conv4_to_conv8_auto_target_0.0_487710.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [5000],
+    "repair_mode": ["NO_REPAIR", "REPAIR"],
+    "fold_c2f_output": [true]
+  },
+  {
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/auto_plan/yolov8_medium_conv4_to_conv8_auto_target_0.1_1219276.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [5000],
+    "repair_mode": ["NO_REPAIR", "REPAIR"],
+    "fold_c2f_output": [true]
+  },
+  {
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/auto_plan/yolov8_medium_conv4_to_conv8_auto_target_0.1_1706987.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [5000],
+    "repair_mode": ["NO_REPAIR", "REPAIR"],
+    "fold_c2f_output": [true]
+  },{
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/auto_plan/yolov8_medium_conv4_to_conv8_auto_target_0.1_2438553.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [5000],
+    "repair_mode": ["NO_REPAIR", "REPAIR"],
+    "fold_c2f_output": [true]
+  },{
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/auto_plan/yolov8_medium_conv4_to_conv8_auto_target_0.1_2926264.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [5000],
+    "repair_mode": ["NO_REPAIR", "REPAIR"],
+    "fold_c2f_output": [true]
+  },{
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/auto_plan/yolov8_medium_conv4_to_conv8_auto_target_0.1_3657830.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [5000],
+    "repair_mode": ["NO_REPAIR", "REPAIR"],
+    "fold_c2f_output": [true]
+  },{
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/auto_plan/yolov8_medium_conv4_to_conv8_auto_target_0.2_4877107.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [5000],
+    "repair_mode": ["NO_REPAIR", "REPAIR"],
+    "fold_c2f_output": [true]
+  },{
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/auto_plan/yolov8_medium_conv4_to_conv8_auto_target_0.2_5364817.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [5000],
+    "repair_mode": ["NO_REPAIR", "REPAIR"],
+    "fold_c2f_output": [true]
+  }
+  ,{
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/auto_plan/yolov8_medium_conv4_to_conv8_auto_target_0.2_6096384.json",
+    "pairing_rates": ["auto"],
+    "calib_images": [5000],
+    "repair_mode": ["NO_REPAIR", "REPAIR"],
+    "fold_c2f_output": [true]
+  }
+]

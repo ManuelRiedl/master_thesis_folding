@@ -15,6 +15,9 @@ import json
 from torch.utils.data import Subset, DataLoader
 import copy
 import re
+
+from ploting_functions.compare_different_versions import FoldingComparator
+
 #disable ultralytics logs
 os.environ['YOLO_VERBOSE'] = 'False'
 os.environ['YOLO_SKIP_CHECK'] = 'True'
@@ -86,51 +89,62 @@ def fuse_all_batchnorms(model):
     print(f"   {C['g']}[Fold-AR] All BN layers fused into their convolutions.{C['res']}")
 
 
-def save_model(model, yolo_obj, repair_mode, pairing_rate, config_base_name, fold_c2f_output, weights_path, num_calib_images=None):
-    print(f"\n{C['dim']}Saving folded model into native YOLO dictionary format...{C['res']}")
+def save_model(model, yolo_obj, repair_mode, pairing_rate, config_path, fold_c2f_output, weights_path,
+               num_calib_images=None):
+    # UI Color outputs
+    colors = {'g': '\033[92m', 'bold': '\033[1m', 'res': '\033[0m'}
+
+    print(f"\n{colors['res']}[Saving Engine] Wrapping model into native YOLO dictionary format...{colors['res']}")
+
+    # Extract official checkpoint dictionary template from your wrapper instance
     ckpt = yolo_obj.ckpt if hasattr(yolo_obj, 'ckpt') else {}
-    # we save the model as fp16 - but the rest of the code assumes fp32
+
+    # Save the model as half-precision (FP16) inside the dictionary container
     ckpt['model'] = copy.deepcopy(model).half()
     if hasattr(model, 'names'):
         ckpt['names'] = model.names
 
-    # 1. Map the internal repair modes to your clean folder names
+    # 1. Map internal repair strings to exact directory folder paths
     mode_dir_map = {
         "NO_REPAIR": "no_repair",
         "APPROX_REPAIR": "data_free_repair",
         "REPAIR": "data_driven_repair"
     }
-    repair_dir = mode_dir_map.get(repair_mode, "unknown_repair")
+    repair_dir = mode_dir_map.get(repair_mode.upper(), "unknown_repair")
 
-    # 2. Extract YOLO version and variant from weights_path
-    # Example: "weights/yolov8m.pt" -> filename: "yolov8m.pt" -> base: "yolov8m"
+    # 2. Extract configuration base name
+    config_filename = os.path.basename(config_path)
+    config_base_name = os.path.splitext(config_filename)[0]
+
+    # 3. Extract YOLO version and variant from weights_path
     weights_filename = os.path.basename(weights_path)
-    model_variant = os.path.splitext(weights_filename)[0]  # e.g., "yolov8m"
+    model_variant = os.path.splitext(weights_filename)[0]
 
-    # Extract the family/version (e.g., "yolov8" from "yolov8m" or "yolo11" from "yolo11n")
-    # This regex looks for 'yolo' followed by numbers.
     match = re.match(r'(yolo\w*\d+)', model_variant, re.IGNORECASE)
     yolo_version = match.group(1).lower() if match else "unknown_yolo"
 
-    # 3. Build the nested directory structure
-    # Format: weights/yolov8/yolov8m/no_repair/0.1/c2f_out_fold_true
+    # 4. Build the nested directory layout structure
     c2f_dir = f"c2f_out_fold_{str(fold_c2f_output).lower()}"
     target_dir = os.path.join("weights", yolo_version, model_variant, repair_dir, str(pairing_rate), c2f_dir)
     os.makedirs(target_dir, exist_ok=True)
 
-    # 4. Build the comprehensive filename
-    # Example: yolo_conv4_conv5_pr0.1005_c2f_true_data_free_repair.pt
+    # 5. Construct filename properties
     file_name = f"{config_base_name}_pr{pairing_rate}_c2f_{str(fold_c2f_output).lower()}_{repair_dir}"
-
-    # Only append the calibration number if it was an actual data-driven repair
-    if repair_mode == "REPAIR" and num_calib_images is not None:
+    if repair_mode.upper() == "REPAIR" and num_calib_images is not None:
         file_name += f"_calib{num_calib_images}"
-
     file_name += ".pt"
 
     save_path = os.path.join(target_dir, file_name)
-    torch.save(ckpt, save_path)
-    print(f"{C['g']}{C['bold']}Model successfully saved to {save_path}!{C['res']}")
+
+    # 6. Save the structured checkpoint dictionary container
+    try:
+        torch.save(ckpt, save_path)
+        print(f"{colors['g']}{colors['bold']}Model successfully saved to: {save_path}{colors['res']}\n")
+    except Exception as e:
+        print(f"\033[91mError saving model checkpoint structure: {e}\033[0m")
+        raise e
+
+    return save_path
 
 
 
@@ -169,7 +183,7 @@ def set_module_by_name(model, name, new_module):
         setattr(parent, parts[-1], new_module)
 
 """
-This function computes the Clustering matrice U by finding similar weights
+This function computes the Clustering matrice U by finding similar weights / running statistics
 """
 def cumpute_cluster_matrix_u(conv_L, bn_L, conv_next, pr):
     print(
@@ -192,8 +206,8 @@ def cumpute_cluster_matrix_u(conv_L, bn_L, conv_next, pr):
         #    that have similar spatial weights but very different BN scaling are NOT clustered.
         parts = [W_l]
         if bn_L is not None:
-            parts.append(bn_L.weight.data.view(n_original_channels, 1))  # γ (Σ_s)
-            parts.append(bn_L.bias.data.view(n_original_channels, 1))    # β
+            parts.append(bn_L.weight.data.view(n_original_channels, 1))  #γ (Σ_s)
+            parts.append(bn_L.bias.data.view(n_original_channels, 1))    #β
         if W_l_next is not None:
             parts.append(W_l_next)
         A = torch.cat(parts, dim=1).float().cpu().numpy()
@@ -249,7 +263,7 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown", ap
             W_l_reshaped = conv_L.weight.data.reshape(n_original, -1)
             updated_W_l = M @ W_l_reshaped
             folded_weigh = updated_W_l.reshape(n_folded, *original_shape_L[1:])
-            conv_L.weight = nn.Parameter(folded_weigh)
+            conv_L.weight = nn.Parameter(folded_weigh.contiguous())
             conv_L.out_channels = n_folded
             # Guard: if the conv has a bias (e.g. Detect head's final 1x1 conv has bias=True),
             # fold it with the same M projection. For bias-less convs (BN-followed) this is a no-op.
@@ -344,7 +358,7 @@ def merge_conv_bn(conv_L, bn_L, conv_next, U, order="output", name="Unknown", ap
             # Fold Input Weights (Algorithm 1, Step 3)
             W_flat = conv_next.weight.data.permute(1, 0, 2, 3).contiguous().reshape(actual_in_channels, -1)
             new_W = (U_to_use.T @ W_flat).reshape(n_fold_in, original_shape_next[0], *original_shape_next[2:])
-            conv_next.weight = nn.Parameter(new_W.permute(1, 0, 2, 3))
+            conv_next.weight = nn.Parameter(new_W.permute(1, 0, 2, 3).contiguous())
             conv_next.in_channels = n_fold_in
             print(f"      {C['bold']}{C['y']}[Debug: Conv Input Fold]{C['res']} Current Input: {actual_in_channels} -> {n_fold_in} {C['y']}{list(conv_next.weight.shape)}{C['res']}")
             return None, None, conv_next
@@ -372,7 +386,7 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate,fold_c
         # Weight of size [X, 38] cannot be multiplied by input of size [X, 24]
 
         # bn_cv1 applies channel-wise to ALL n_total cv1 outputs; slice into top/bottom halves
-        # so each cluster sees its own γ/β alongside the conv rows (matches B2 fix above).
+        # so each cluster sees its own γ/β alongside the conv rows
         # get the running statistics of the first cv1 block => So the identity path and the bottleneck paths have them
         bn_cv1 = get_module_by_name(model, f"{block_name}.cv1.bn")
         bn_gamma = bn_cv1.weight.data if bn_cv1 is not None else None
@@ -444,38 +458,35 @@ def c2f_layer_folding(c2f_layer, U_input, model, block_name, pairing_rate,fold_c
         U_bot = U_new[half:, target_half:]
         # how many bottlneck paths we have
         num_bottlenecks = len(c2f_layer.m)
+        #total with of tensors before folding: n_total = identity + first split before entering first bottleneck, num_bottlneck is represented by half of the matrice size
         actual_cv2_in = n_total + half * num_bottlenecks
+        #identity path + input to the first bottleneck + output of every bottleneck
         total_out_cols = target_half * (2 + num_bottlenecks)
         U_cv2 = torch.zeros(actual_cv2_in, total_out_cols, device=device)
         # First we have the identity path
         U_cv2[:half, :target_half] = U_top
-        # Second - the the other half is directly passed to the concat
+        # Second - the other half is directly passed to the concat
         U_cv2[half:n_total, target_half:2 * target_half] = U_bot
         # 2..N -> bottleneck adds
         for i in range(num_bottlenecks):
             row_start = n_total + i * half
             col_start = (i + 2) * target_half
             U_cv2[row_start:row_start + half, col_start:col_start + target_half] = U_bot
-
         merge_conv_bn(None, None, c2f_layer.cv2.conv, U_cv2, order='input', name=f"{block_name}.cv2.conv",approximate_repair=approximate_repair)
 
+        #If we fold the output of the C2F Block
         if fold_c2f_output:
-            print(f"   {C['cy']}{C['bold']}[C2F Debug] Folding the 1x1 output projection layer (cv2){C['res']}")
-
-            # 1. Fetch the BN layer for the cv2 output
+            print(f"   {C['cy']}{C['bold']}[C2F Debug] Folding the output layer (cv2){C['res']}")
+            #fetch th bn layer
             bn_cv2_out_name = f"{block_name}.cv2.bn"
             bn_cv2_out = get_module_by_name(model, bn_cv2_out_name)
-
-            # 2. Compute K-Means U Matrix for cv2 (None for conv_next because the main loop handles downstream)
+            #compute U Matrixe for c2v-out - next layer is None => Handled later (because of mutliple outs)
             U_cv2_output = cumpute_cluster_matrix_u(c2f_layer.cv2.conv, bn_cv2_out, None, pairing_rate)
-
-            # 3. Apply the Output Fold
             _, bn_f_out, _ = merge_conv_bn(c2f_layer.cv2.conv, bn_cv2_out, None, U_cv2_output, order='output',
                                            name=bn_cv2_out_name,approximate_repair=approximate_repair)
             if bn_f_out is not None:
                 set_module_by_name(model, bn_cv2_out_name, bn_f_out)
-
-            # 4. Save to u_cache so your new FPN Concat logic can find it!
+            #save for the concat logic
             u_cache[f"{block_name}.cv2.conv"] = U_cv2_output
         else:
             print(
@@ -548,8 +559,7 @@ def repair_bn_forward_pass(model, loader, device, folding_plan=None, max_samples
 
 def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib_images, repair_mode,fold_c2f_output,
                            calib_ds="coco/labels/train2017"):
-    # load yolo weights
-    filename = os.path.basename(config_path)
+    #load yolo weights
     config_base_name = os.path.splitext(os.path.basename(config_path))[0]
     print(f"\n{C['bold']}============================================================{C['res']}")
     print(
@@ -557,9 +567,10 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
     print(f"{C['bold']}============================================================{C['res']}")
     yolo = YOLO(weights_path)
     model = yolo.model.eval()
+    #use gpu
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
-    print(f"Using {next(model.parameters()).device}")
+    print(f"Using device: {next(model.parameters()).device}")
 
     # load folding configuration
     if os.path.exists(config_path):
@@ -574,10 +585,10 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
     if approx_repair:
         print(f"\n{C['bold']}{C['cy']}--- Fold-AR: Fusing BN into Conv (pre-folding) ---{C['res']}")
         fuse_all_batchnorms(model)
+    #total parameters before foldin
     initial_params = utils_new.count_parameters(model)
     print(f"Total Parameters: {C['bold']}{initial_params:,}{C['res']}")
 
-    # We save the layers we already folded - so we do not fold them twice (beacuse of the C2f block logic)
     print(f"\n{C['dim']}[Capturing Model Snapshot]{C['res']}")
     shape_snapshot = {
         name: (mod.in_channels if hasattr(mod, 'in_channels') else mod.num_features,
@@ -585,6 +596,7 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
         for name, mod in model.named_modules()
         if isinstance(mod, (nn.Conv2d, nn.BatchNorm2d))
     }
+    #Print function for the output before folding
     utils_new.check_layer_shapes(model, folding_plan, shape_snapshot=shape_snapshot, hide_bn=True, internal_name=True,
                                  show_reduction=False)
 
@@ -592,46 +604,51 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
     processed_layers = set()
     processed_consumers = set()
     print(f"\n{C['bold']}{C['cy']}--- Starting Model Folding Engine ---{C['res']}")
+    #process each layer in the folding plan
     for module_name, settings in folding_plan.items():
         if not settings.get('do_folding') or module_name in processed_layers or ".bn" in module_name:
             continue
         print(f"\n{C['bold']}Folding Layer: {C['b']}{module_name}{C['res']}")
         try:
             layer_L = module_name
+            #get the layer from the model which is defined in the config
             conv_L = get_module_by_name(model, layer_L)
 
-            # Collect ALL consumers of this folded layer.
+            #collect ALL consumers of this folded layer
             consumers = []
             for next_name, next_settings in folding_plan.items():
                 pre_layer = next_settings.get('pre')
                 if pre_layer == layer_L or (isinstance(pre_layer, list) and layer_L in pre_layer):
                     consumers.append((next_name, get_module_by_name(model, next_name), pre_layer))
-
+            #for a predefined pr
             layer_pr = settings.get('pr')
             pairing_r = float(layer_pr) if layer_pr is not None else float(pairing_rate)
             ref_mapping = settings.get('consistent_map')
-
+            #If the U matrice should be reused -> If this layer is already in the cache reuse it
+            #else calculate it
             if ref_mapping and ref_mapping in u_cache:
                 print(f"   {C['dim']}[Consistent Map]{C['res']} Inheriting U from {ref_mapping}")
                 U_matrix = u_cache[ref_mapping]
             else:
+                #get the bn layer for the current cv-layer
                 bn_for_cluster = get_module_by_name(model, layer_L.replace(".conv", ".bn"))
+                #compute U matrice
                 U_matrix = cumpute_cluster_matrix_u(conv_L, bn_for_cluster, None, pairing_r)
                 u_cache[layer_L] = U_matrix
-
+            #check if this conv layer is the first of the C2F Block - so before the Split-block
             parts = module_name.split('.')
             c2f_block_name = ".".join(parts[:2])
             c2f_candidate = get_module_by_name(model, c2f_block_name)
 
             if "C2f" in str(type(c2f_candidate)) and "cv1.conv" in module_name:
-                # 1. Fold the C2f block
+                #Fold c2f block
                 U_final = c2f_layer_folding(c2f_candidate, U_matrix, model, c2f_block_name, pairing_r, fold_c2f_output,approx_repair)
                 u_cache[layer_L] = U_final
                 for inner_name in folding_plan.keys():
                     if c2f_block_name in inner_name:
                         processed_layers.add(inner_name)
 
-                # 2. Sync consumers if C2f output was folded
+                #take care of the consumers if c2f-out was folded
                 c2f_out_name = f"{c2f_block_name}.cv2.conv"
                 if c2f_out_name in u_cache:
                     for next_name, next_settings in folding_plan.items():
@@ -640,37 +657,57 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
                             if next_name in processed_consumers: continue
 
                             cmod = get_module_by_name(model, next_name)
-                            # Logic for Block-Diagonal Neck Concat
+                            #build diagonal U matrice for the consumers
                             if isinstance(pre_layer, list):
+                                #only fold if all outs which contribute to the U matrice are rdy (already folded or not in the folding plan)
                                 all_ready = all(
-                                    s not in folding_plan or not folding_plan[s].get('do_folding') or s in u_cache for s
-                                    in pre_layer)
+                                    s not in folding_plan or not folding_plan[s].get('do_folding') or s in u_cache or (
+                                                s.endswith('.cv2.conv') and not fold_c2f_output) for s in pre_layer
+                                )
+                                #If not all rdy (in the U-cache) go on
                                 if not all_ready: continue
+                                #fetch cached U matrix if folded, else use I-matrix
                                 u_blocks = [
                                     u_cache[s] if s in u_cache else torch.eye(get_module_by_name(model, s).out_channels,
                                                                               device=device) for s in pre_layer]
+                                #concat matrices diagonally to match the concatenated channels -fold the consumers input weights
                                 merge_conv_bn(None, None, cmod, torch.block_diag(*u_blocks), order="input",
-                                              name=next_name,approximate_repair=approx_repair)
+                                              name=next_name, approximate_repair=approx_repair)
                             else:
+                                #fold input of the next block -> this is the 1:1 connection (only one consumer)
                                 merge_conv_bn(None, None, cmod, u_cache[c2f_out_name], order="input", name=next_name,approximate_repair=approx_repair)
                             processed_consumers.add(next_name)
             else:
                 # Standard backbone folding
+                # fold current layer
                 bn_name = layer_L.replace(".conv", ".bn")
                 bn_L = get_module_by_name(model, bn_name)
                 _, bn_folded, _ = merge_conv_bn(conv_L, bn_L, None, U_matrix, order="output", name=bn_name,approximate_repair=approx_repair)
                 if bn_folded is not None:
                     set_module_by_name(model, bn_name, bn_folded)
-                for cname, cmod, _ in consumers:
-                    merge_conv_bn(None, None, cmod, U_matrix, order="input", name=cname,approximate_repair=approx_repair)
-
+                #applay the input folding to all following consumers
+                for cname, cmod, pre_layer in consumers:
+                    if isinstance(pre_layer, list):
+                        all_ready = all(
+                            s not in folding_plan or not folding_plan[s].get('do_folding') or s in u_cache or (
+                                        s.endswith('.cv2.conv') and not fold_c2f_output) for s in pre_layer
+                        )
+                        if not all_ready: continue
+                        u_blocks = [
+                            u_cache[s] if s in u_cache else torch.eye(get_module_by_name(model, s).out_channels,
+                                                                      device=device) for s in pre_layer]
+                        merge_conv_bn(None, None, cmod, torch.block_diag(*u_blocks), order="input",
+                                      name=cname, approximate_repair=approx_repair)
+                    else:
+                        merge_conv_bn(None, None, cmod, U_matrix, order="input", name=cname,
+                                      approximate_repair=approx_repair)
             print(f"   {C['g']}Successfully folded {module_name}{C['res']}")
 
         except Exception as e:
             print(f"   {C['r']}Skipping {module_name} ERROR: {e}{C['res']}")
             continue
 
-    # Final stats and forward pass
+    #stats and forward pass
     print(f"\n{C['bold']}[AFTER FOLDING]{C['res']}")
     final_params = utils_new.count_parameters(model)
     utils_new.check_layer_shapes(model, folding_plan, shape_snapshot=shape_snapshot, hide_bn=True, internal_name=True,
@@ -680,12 +717,18 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
         f"\n{C['bold']}Total Parameters: {final_params:,} ({C['g']}{reduction:.2f}% reduction{C['res']}{C['bold']}){C['res']}")
     utils_new.test_forward_pass(model, device)
 
-
-
-    # Save and Repair
+    #save folded model and repair
     if repair_mode == "APPROX_REPAIR":
         print(f"\n{C['bold']}{C['g']}Fold-AR complete. No forward pass needed.{C['res']}")
-        save_model(model, yolo, repair_mode, pairing_rate, config_base_name,weights_path, fold_c2f_output)
+        saved_path = save_model(
+            model,
+            yolo,
+            repair_mode,
+            pairing_rate,
+            config_path=config_path,
+            fold_c2f_output=fold_c2f_output,
+            weights_path=weights_path
+        )
 
     elif repair_mode == "REPAIR":
         full_dataset = utils_new.COCOImageFolder(image_dir=calib_ds, imgsz=640, max_images=None)
@@ -693,35 +736,55 @@ def run_folding_experiment(weights_path, config_path, pairing_rate, number_calib
         train_loader = DataLoader(Subset(full_dataset, random_indices), batch_size=16, shuffle=True, num_workers=2,
                                   pin_memory=True)
         repair_bn_forward_pass(model, train_loader, device, folding_plan=folding_plan, max_samples=number_calib_images)
-        save_model(model, yolo, repair_mode, pairing_rate, config_base_name, fold_c2f_output,weights_path,
-                   num_calib_images=number_calib_images)
+
+        saved_path = save_model(
+            model,
+            yolo,
+            repair_mode,
+            pairing_rate,
+            config_path=config_path,
+            fold_c2f_output=fold_c2f_output,
+            weights_path=weights_path,
+            num_calib_images=number_calib_images
+        )
     else:
-        # save the model by stadard before apply REPAIR
-        save_model(model, yolo, "NO_REPAIR", pairing_rate, config_base_name,weights_path, fold_c2f_output)
+        # save the model by standard before apply REPAIR
+        saved_path = save_model(
+            model,
+            yolo,
+            "NO_REPAIR",
+            pairing_rate,
+            config_path=config_path,
+            fold_c2f_output=fold_c2f_output,
+            weights_path=weights_path
+        )
 
     del model
     del yolo
     torch.cuda.empty_cache()
 
+    return saved_path
+
 
 def main():
-    WEIGHTS_PATH = "weights/yolov8/yolov8m/yolov8m.pt"
     CALIB_DS = "coco/images/train2017"
-    #if this is None => manual experimen is used
-    EXPERIMENTS_FILE = "config_experiments/experiment_5.json"
+    TEST_DS = "coco/images/val2017"
+    #run the test set after the folding
+    RUN_AUTOMATED_BENCHMARK = True
+    # set this to "None" => the manual_experiment is used
+    EXPERIMENTS_FILE = "config_experiments/experiment_conv4_conv8_auto.json"
 
-    # MANUAL PARAMETERS (Used ONLY if EXPERIMENTS_FILE = None !!)
     manual_experiments = [
         {
-            "config": "config_folding/yolo_conv4_to_conv8.json",
-            "pairing_rates": [0.100000001, 0.200000001, 0.300000001],
+            "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+            "config": "config_folding/auto_plan/yolov8_medium_conv4_to_conv8_auto_target_0.2_4877107.json",
+            "pairing_rates": ["auto"],
             "calib_images": [5000],
-            "repair_mode": ["APPROX_REPAIR"],
+            "repair_mode": ["NO_REPAIR","REPAIR"],
             "fold_c2f_output": [True]
         }
     ]
 
-    #Use the appropriate config
     if EXPERIMENTS_FILE and os.path.exists(EXPERIMENTS_FILE):
         print(f"{C['dim']}Found {EXPERIMENTS_FILE}. Loading grid search from JSON...{C['res']}")
         with open(EXPERIMENTS_FILE, 'r') as f:
@@ -732,10 +795,11 @@ def main():
 
     print(f"{C['cy']}Queued {len(experiments)} experiment profiles.{C['res']}\n")
 
-    #double for loop => Grid Search
     for exp in experiments:
         config_file = exp["config"]
-        # itertools => Every combination of that list ("dummy" values to prevent an error)
+        #default yolov8m - weights path is used
+        current_weights = exp.get("weights_path", "weights/yolov8/yolov8m/yolov8m.pt")
+        #gridsearch combinations
         combinations = itertools.product(
             exp.get("pairing_rates", [0.1]),
             exp.get("calib_images", [1000]),
@@ -743,12 +807,18 @@ def main():
             exp.get("fold_c2f_output", [False])
         )
 
+        #save the paths for the automated benchmark
+        generated_model_paths = []
+        model_labels = ["Baseline"]
+        model_groups = ["Baseline"]
+        #gridsearch loop
         for pr, calib_n, rep_mode, fold_c2f in combinations:
+            #save for the U Matrice -> eg: when it is reused in the Concat block
             global u_cache
             u_cache = {}
 
-            run_folding_experiment(
-                weights_path=WEIGHTS_PATH,
+            saved_model_path = run_folding_experiment(
+                weights_path=current_weights,
                 config_path=config_file,
                 pairing_rate=pr,
                 number_calib_images=calib_n,
@@ -756,6 +826,39 @@ def main():
                 fold_c2f_output=fold_c2f,
                 calib_ds=CALIB_DS
             )
+
+            #save paths for the automatic benchmark
+            generated_model_paths.append(saved_model_path)
+            mode_str = "Data Free" if rep_mode == "APPROX_REPAIR" else (
+                "Data Driven" if rep_mode == "REPAIR" else "No Repair")
+            if str(pr).lower() == "auto":
+                pr_display = "Auto"
+            else:
+                pr_display = f"{float(pr):.1f}"
+
+            # Inject the safe display string
+            model_labels.append(f"PR {pr_display}: {mode_str}")
+            model_groups.append(f"Pairing Rate: {pr_display}")
+
+        if RUN_AUTOMATED_BENCHMARK:
+            print(f"\n{C['cy']}Running Automatic Benchmark for {config_file} {C['res']}")
+            all_models_to_test = [current_weights] + generated_model_paths
+
+            comp = FoldingComparator(
+                model_paths=all_models_to_test,
+                image_dir=TEST_DS,
+                model_labels=model_labels,
+                report_title=f"Auto-Benchmark: {os.path.basename(config_file)}",
+                batch_size=16,
+                groups=model_groups
+            )
+
+            try:
+                comp.run_all_benchmarks()
+                comp.generate_report(generate_plots=False)
+            finally:
+                comp.cleanup()
+
 
 if __name__ == "__main__":
     main()

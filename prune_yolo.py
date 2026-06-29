@@ -3,6 +3,7 @@ import json
 import math
 import copy
 import cv2
+import shutil
 import torch
 import torch.nn as nn
 from typing import Sequence, Type
@@ -11,12 +12,15 @@ from ultralytics.nn.modules import Detect
 from torch.utils.data import DataLoader, Dataset
 import torch_pruning as tp
 import numpy as np
+
 """
-This code is mainly form here: https://github.com/VainF/Torch-Pruning/blob/master/examples/yolov8/yolov8_pruning.py
+This code is mainly from here: https://github.com/VainF/Torch-Pruning/blob/master/examples/yolov8/yolov8_pruning.py
 """
 
 
-# --- YOLO C2f Compatibility ---
+# =============================================================================
+# 1. YOLO C2F COMPATIBILITY SHIM
+# =============================================================================
 def _try_import_yolo_modules():
     from ultralytics.nn.modules import C2f, Conv, Bottleneck, Detect
     return C2f, Conv, Bottleneck, Detect
@@ -86,7 +90,9 @@ def replace_c2f_with_c2f_v2(module: nn.Module) -> None:
             replace_c2f_with_c2f_v2(child)
 
 
-# --- Custom Dataset for Unlabeled Images ---
+# =============================================================================
+# 2. DATASET & PRUNING LOGIC
+# =============================================================================
 class UnlabeledImageDataset(Dataset):
     def __init__(self, img_dir, imgsz=640):
         self.img_dir = img_dir
@@ -124,7 +130,7 @@ def prune_yolov8_tp(
     if device is None:
         device = next(model.parameters()).device
 
-    importance = tp.importance.GroupMagnitudeImportance(p=2)
+    importance = tp.importance.GroupMagnitudeImportance(p=1)
     ignored_layers = []
 
     if config_path and os.path.exists(config_path):
@@ -176,51 +182,36 @@ def prune_yolov8_tp(
     }
 
 
-#foeard pass repair
+# =============================================================================
+# 3. FORWARD PASS REPAIR (BN CALIBRATION)
+# =============================================================================
 def repair_bn_forward_pass(
         model: nn.Module,
         loader,
         device,
-        config_path: str | None = None,
+        config_path: str | None = None,  # Kept so your main loop doesn't break
         max_samples: int = 1000,
         verbose: bool = True,
 ) -> nn.Module:
+    # 1. Grab ALL Batch Normalization layers in the entire model
     all_bn = {name: m for name, m in model.named_modules()
               if isinstance(m, nn.BatchNorm2d)}
 
-    if config_path and os.path.exists(config_path):
-        with open(config_path) as f:
-            plan = json.load(f)
-
-        folded_convs = [n for n, cfg in plan.items() if cfg.get("do_folding")]
-        affected_bns = set()
-        for conv_name in folded_convs:
-            if conv_name.endswith(".conv"):
-                bn_name = conv_name[:-len(".conv")] + ".bn"
-                if bn_name in all_bn:
-                    affected_bns.add(bn_name)
-                elif verbose:
-                    print(f"  [REPAIR] Warning: no BN found for {conv_name} (looked for {bn_name})")
-
-        bn_to_reset = {n: all_bn[n] for n in affected_bns}
-    else:
-        bn_to_reset = all_bn
-
-    if not bn_to_reset:
-        print("[REPAIR] No BN layers to reset — skipping.")
+    if not all_bn:
+        print("[REPAIR] No BN layers found — skipping.")
         return model
 
-    for bn in bn_to_reset.values():
+    # 2. Reset running statistics for all of them
+    for bn in all_bn.values():
         bn.momentum = None
         bn.reset_running_stats()
 
     if verbose:
         print(f"\n[REPAIR] BN Forward-Pass Recalibration")
-        print(f"  Resetting {len(bn_to_reset)}/{len(all_bn)} BN layers (folded only):")
-        for name in sorted(bn_to_reset):
-            print(f"    ↺ {name}")
+        print(f"  Resetting ALL {len(all_bn)} BN layers in the model.")
 
-    model.train()
+    # 3. Push data through to recalculate means/variances
+    model.train()  # Must be in train mode to update BN stats
     model_dtype = next(model.parameters()).dtype
     seen = 0
 
@@ -228,7 +219,6 @@ def repair_bn_forward_pass(
         while seen < max_samples:
             for images in loader:
                 images = images.to(device=device, dtype=model_dtype)
-
                 try:
                     model(images)
                 except Exception as e:
@@ -242,10 +232,10 @@ def repair_bn_forward_pass(
                 if seen >= max_samples:
                     break
 
-    model.eval()
+    model.eval()  # Return to eval mode for safe saving/inference
 
     if verbose:
-        print(f"\n[REPAIR] Complete — {len(bn_to_reset)} BN layers recalibrated on {seen} samples.")
+        print(f"\n[REPAIR] Complete — {len(all_bn)} BN layers recalibrated on {seen} samples.")
 
     return model
 
@@ -262,16 +252,50 @@ def save_yolo_checkpoint(model: nn.Module, path: str) -> None:
     print(f"Saved: {path}")
 
 
+# =============================================================================
+# 4. MAIN PIPELINE EXECUTION
+# =============================================================================
 if __name__ == "__main__":
-    RATIO = [0.1]
 
-    for ratio in RATIO:
-        MODEL_PATH = "weights/yolov8m.pt"
-        JSON_CONFIG = None
-        BASE_SAVE = f"weights/prune/{ratio}/yolo_global"
-        COCO_IMGS = "coco/images/val2017"
+    # ── Configuration ────────────────────────────────────────────────────────
+    RATIOS = [0.3, 0.2, 0.1]
+    MODEL_PATH = "weights/yolov8/yolov8m/yolov8m.pt"
+    JSON_CONFIG = "config_folding/yolov8_m/yolov8_medium_conv4_to_conv8.json"
 
-        CALIB_SIZES = [20000]
+    # Forward Pass Repair Config
+    COCO_IMGS = "coco/images/train2017"
+    CALIB_SIZE = 5000
+
+    # Backprop Fine-Tuning Config
+    TRAIN_DATA_YAML = "data.yaml"  # Ensure this dataset is accessible for training
+    TRAIN_EPOCHS = 10
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    # Setup directories
+    dir_no_repair = "weights/yolov8/yolov8m/prune_without_repair"
+    dir_with_repair = "weights/yolov8/yolov8m/prune_with_repair"
+    dir_backprop = "weights/yolov8/yolov8m/prune_with_backprop"
+
+    os.makedirs(dir_no_repair, exist_ok=True)
+    os.makedirs(dir_with_repair, exist_ok=True)
+    os.makedirs(dir_backprop, exist_ok=True)
+
+    # Load Calibration Dataset once
+    calib_dataset = UnlabeledImageDataset(COCO_IMGS, imgsz=640)
+    calib_loader = DataLoader(
+        calib_dataset,
+        batch_size=16,
+        shuffle=True,
+        num_workers=4,
+    )
+
+    for ratio in RATIOS:
+        print(f"\n{'=' * 70}\nProcessing Pruning Ratio: {ratio}\n{'=' * 70}")
+
+        # ---------------------------------------------------------
+        # PHASE 1: Prune Without Repair
+        # ---------------------------------------------------------
         yolo = YOLO(MODEL_PATH)
         model = yolo.model
         replace_c2f_with_c2f_v2(model)
@@ -283,33 +307,86 @@ if __name__ == "__main__":
             ignored_layer_types=(Detect,),
         )
 
-        reduction = (1 - stats['pruned_params'] / stats['base_params']) * 100
-        print(f"\nBaseline Params: {stats['base_params']:,}")
-        print(f"Pruned Params:   {stats['pruned_params']:,}  ({reduction:.2f}% reduction)")
+        # Added l1 marker
+        path_no_repair = os.path.join(dir_no_repair, f"prune_l1_yolov8_medium_conv4_to_conv8_pr{ratio}_no_repair.pt")
+        save_yolo_checkpoint(model, path_no_repair)
 
-        save_yolo_checkpoint(model, f"{BASE_SAVE}_pruned_without_repair.pt")
+        # ---------------------------------------------------------
+        # PHASE 2: Prune With Repair (Forward Pass Only)
+        # ---------------------------------------------------------
+        print(f"\n  -> Running BN Forward-Pass Repair ({CALIB_SIZE} Samples)")
+        model_to_repair = copy.deepcopy(model).to(device)
 
-        calib_dataset = UnlabeledImageDataset(COCO_IMGS, imgsz=640)
-        calib_loader = DataLoader(
-            calib_dataset,
-            batch_size=16,
-            shuffle=True,
-            num_workers=4,
+        repair_bn_forward_pass(
+            model_to_repair,
+            calib_loader,
+            device,
+            config_path=JSON_CONFIG,
+            max_samples=CALIB_SIZE
         )
 
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # Added l1 marker
+        path_with_repair = os.path.join(dir_with_repair,
+                                        f"prune_l1_yolov8_medium_conv4_to_conv8_pr{ratio}_with_repair.pt")
+        save_yolo_checkpoint(model_to_repair, path_with_repair)
 
-        for calib_size in CALIB_SIZES:
-            print(f"\n{'=' * 60}\nRunning BN Repair for {calib_size} Samples\n{'=' * 60}")
+        # Free memory before training
+        del model_to_repair
+        torch.cuda.empty_cache()
 
-            model_to_repair = copy.deepcopy(model).to(device)
+        # ---------------------------------------------------------
+        # PHASE 3: Prune With Backprop (Fine-Tuning)
+        # ---------------------------------------------------------
+        print(f"\n  -> Running Backward Pass Fine-Tuning ({TRAIN_EPOCHS} Epochs)")
 
-            repair_bn_forward_pass(
-                model_to_repair,
-                calib_loader,
-                device,
-                config_path=JSON_CONFIG,
-                max_samples=calib_size
-            )
+        from ultralytics.models.yolo.detect import DetectionTrainer
 
-            save_yolo_checkpoint(model_to_repair, f"{BASE_SAVE}_pruned_forward_pass_repair_calib{calib_size}.pt")
+
+        # 1. Create a custom trainer that handles the pre-loaded pruned model
+        class PrunedTrainer(DetectionTrainer):
+            def get_model(self, cfg=None, weights=None, verbose=True):
+                if isinstance(weights, torch.nn.Module):
+                    model = weights
+                else:
+                    ckpt = torch.load(path_no_repair, map_location=self.device)
+                    model = ckpt['model']
+                return model.to(self.device)
+
+
+        # Define project directory for Ultralytics to dump runs into
+        temp_project_dir = "runs/pruning_finetune"
+        train_name = f"pr{ratio}_l1_finetuned"  # Added l1 to the run folder name!
+
+        # 2. Initialize our custom trainer with the config
+        trainer = PrunedTrainer(overrides={
+            "data": TRAIN_DATA_YAML,
+            "epochs": TRAIN_EPOCHS,
+            "fraction": 0.0625,
+            "imgsz": 640,
+            "device": device.index if device.type == 'cuda' else 'cpu',
+            "project": temp_project_dir,
+            "name": train_name,
+            "model": path_no_repair,
+            "exist_ok": True
+        })
+
+        # 3. Run the training loop safely
+        trainer.train()
+
+        # 4. Fetch the trained weights and copy them to your designated directory
+        # FIX: Ultralytics always saves the best epoch as 'prune_yolov8_medium_conv4_to_conv8_l1_pr0.1_with_backprop.pt'
+        best_weights_path = os.path.join(temp_project_dir, train_name, "weights", "prune_yolov8_medium_conv4_to_conv8_l1_pr0.1_with_backprop.pt")
+
+        # Added l1 marker and fixed dynamic ratio
+        final_backprop_path = os.path.join(dir_backprop,
+                                           f"prune_l1_yolov8_medium_conv4_to_conv8_pr{ratio}_with_backprop.pt")
+
+        if os.path.exists(best_weights_path):
+            shutil.copy(best_weights_path, final_backprop_path)
+            print(f"Saved Fine-Tuned Model: {final_backprop_path}")
+        else:
+            print(f"\033[91mError: Fine-tuning completed but couldn't locate {best_weights_path}\033[0m")
+
+        # Free memory for the next ratio
+        del trainer
+        torch.cuda.empty_cache()

@@ -1,16 +1,10 @@
 [
   {
-    "config": "config_folding/yolo_conv4_conv5.json",
-    "pairing_rates": [0.1, 0.2, 0.3],
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/yolov8_m/yolov8_medium_all_conv_layers.json",
+    "pairing_rates": [ 0.1,0.2,0.3],
     "calib_images": [5000],
-    "repair_mode": ["NO_REPAIR"],
-    "fold_c2f_output": [true]
-  },
-  {
-    "config": "config_folding/yolo_conv4_to_conv8.json",
-    "pairing_rates": [0.1, 0.2, 0.3],
-    "calib_images": [5000],
-    "repair_mode": ["NO_REPAIR"],
+    "repair_mode": [ "REPAIR"],
     "fold_c2f_output": [true]
   }
 ]

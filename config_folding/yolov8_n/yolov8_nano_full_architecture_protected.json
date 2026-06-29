@@ -1,0 +1,56 @@
+{
+    "model.4.cv1.conv": { "pre": "model.3.conv", "do_folding": true, "num_channels": 64, "consistent_map": null },
+    "model.4.m.0.cv1.conv": { "pre": "model.4.cv1.conv", "do_folding": true, "consistent_map": "model.4.cv1.conv" },
+    "model.4.m.0.cv2.conv": { "pre": "model.4.cv1.conv", "do_folding": true, "consistent_map": "model.4.cv1.conv" },
+    "model.4.m.1.cv1.conv": { "pre": "model.4.cv1.conv", "do_folding": true, "consistent_map": "model.4.cv1.conv" },
+    "model.4.m.1.cv2.conv": { "pre": "model.4.cv1.conv", "do_folding": true, "consistent_map": "model.4.cv1.conv" },
+    "model.4.cv2.conv": { "pre": "model.4.cv1.conv", "do_folding": true, "num_channels": 64, "consistent_map": "model.4.cv1.conv" },
+
+    "model.5.conv": { "pre": "model.4.cv2.conv", "do_folding": true, "num_channels": 128 },
+
+    "model.6.cv1.conv": { "pre": "model.5.conv", "do_folding": true, "num_channels": 128, "consistent_map": null },
+    "model.6.m.0.cv1.conv": { "pre": "model.6.cv1.conv", "do_folding": true, "consistent_map": "model.6.cv1.conv" },
+    "model.6.m.0.cv2.conv": { "pre": "model.6.cv1.conv", "do_folding": true, "consistent_map": "model.6.cv1.conv" },
+    "model.6.m.1.cv1.conv": { "pre": "model.6.cv1.conv", "do_folding": true, "consistent_map": "model.6.cv1.conv" },
+    "model.6.m.1.cv2.conv": { "pre": "model.6.cv1.conv", "do_folding": true, "consistent_map": "model.6.cv1.conv" },
+    "model.6.cv2.conv": { "pre": "model.6.cv1.conv", "do_folding": true, "num_channels": 128, "consistent_map": "model.6.cv1.conv" },
+
+    "model.7.conv": { "pre": "model.6.cv2.conv", "do_folding": true, "num_channels": 256 },
+
+    "model.8.cv1.conv": { "pre": "model.7.conv", "do_folding": true, "num_channels": 256, "consistent_map": null },
+    "model.8.m.0.cv1.conv": { "pre": "model.8.cv1.conv", "do_folding": true, "consistent_map": "model.8.cv1.conv" },
+    "model.8.m.0.cv2.conv": { "pre": "model.8.cv1.conv", "do_folding": true, "consistent_map": "model.8.cv1.conv" },
+    "model.8.cv2.conv": { "pre": "model.8.cv1.conv", "do_folding": true, "num_channels": 256, "consistent_map": "model.8.cv1.conv" },
+
+    "model.9.cv1.conv": { "pre": "model.8.cv2.conv", "do_folding": false },
+
+    "model.12.cv1.conv": { "pre": ["model.9.cv2.conv", "model.6.cv2.conv"], "do_folding": true, "num_channels": 128, "consistent_map": null },
+    "model.12.m.0.cv1.conv": { "pre": "model.12.cv1.conv", "do_folding": true, "consistent_map": "model.12.cv1.conv" },
+    "model.12.m.0.cv2.conv": { "pre": "model.12.cv1.conv", "do_folding": true, "consistent_map": "model.12.cv1.conv" },
+    "model.12.cv2.conv": { "pre": "model.12.cv1.conv", "do_folding": true, "num_channels": 128, "consistent_map": "model.12.cv1.conv" },
+
+    "model.15.cv1.conv": { "pre": ["model.12.cv2.conv", "model.4.cv2.conv"], "do_folding": true, "num_channels": 64, "consistent_map": null },
+    "model.15.m.0.cv1.conv": { "pre": "model.15.cv1.conv", "do_folding": true, "consistent_map": "model.15.cv1.conv" },
+    "model.15.m.0.cv2.conv": { "pre": "model.15.cv1.conv", "do_folding": true, "consistent_map": "model.15.cv1.conv" },
+    "model.15.cv2.conv": { "pre": "model.15.cv1.conv", "do_folding": true, "num_channels": 64, "consistent_map": "model.15.cv1.conv" },
+
+    "model.16.conv": { "pre": "model.15.cv2.conv", "do_folding": true },
+
+    "model.18.cv1.conv": { "pre": ["model.16.conv", "model.12.cv2.conv"], "do_folding": true, "num_channels": 128, "consistent_map": null },
+    "model.18.m.0.cv1.conv": { "pre": "model.18.cv1.conv", "do_folding": true, "consistent_map": "model.18.cv1.conv" },
+    "model.18.m.0.cv2.conv": { "pre": "model.18.cv1.conv", "do_folding": true, "consistent_map": "model.18.cv1.conv" },
+    "model.18.cv2.conv": { "pre": "model.18.cv1.conv", "do_folding": true, "num_channels": 128, "consistent_map": "model.18.cv1.conv" },
+
+    "model.19.conv": { "pre": "model.18.cv2.conv", "do_folding": true },
+
+    "model.21.cv1.conv": { "pre": ["model.19.conv", "model.9.cv2.conv"], "do_folding": true, "num_channels": 256, "consistent_map": null },    "model.21.m.0.cv1.conv": { "pre": "model.21.cv1.conv", "do_folding": true, "consistent_map": "model.21.cv1.conv" },
+    "model.21.m.0.cv2.conv": { "pre": "model.21.cv1.conv", "do_folding": true, "consistent_map": "model.21.cv1.conv" },
+    "model.21.cv2.conv": { "pre": "model.21.cv1.conv", "do_folding": true, "num_channels": 256, "consistent_map": "model.21.cv1.conv" },
+
+    "model.22.cv2.0.0.conv": { "pre": "model.15.cv2.conv", "do_folding": false },
+    "model.22.cv3.0.0.conv": { "pre": "model.15.cv2.conv", "do_folding": false },
+    "model.22.cv2.1.0.conv": { "pre": "model.18.cv2.conv", "do_folding": false },
+    "model.22.cv3.1.0.conv": { "pre": "model.18.cv2.conv", "do_folding": false },
+    "model.22.cv2.2.0.conv": { "pre": "model.21.cv2.conv", "do_folding": false },
+    "model.22.cv3.2.0.conv": { "pre": "model.21.cv2.conv", "do_folding": false }
+}

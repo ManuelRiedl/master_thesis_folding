@@ -9,6 +9,7 @@ import matplotlib.patches as mpatches
 import matplotlib.colors as mcolors
 import cv2
 import textwrap
+import re  # <--- Added for regex parsing
 from datetime import datetime
 from tqdm import tqdm
 from ultralytics import YOLO
@@ -16,17 +17,22 @@ from ultralytics import YOLO
 # ── optional FLOPs backend (thop preferred, fvcore as fallback) ──────────────
 try:
     from thop import profile as thop_profile
+
     _FLOPS_BACKEND = "thop"
 except ImportError:
     try:
         from fvcore.nn import FlopCountAnalysis
+
         _FLOPS_BACKEND = "fvcore"
     except ImportError:
         _FLOPS_BACKEND = None
 
 # --- UI CONSTANTS ---
-C = {'b': '\033[94m', 'g': '\033[92m', 'y': '\033[93m', 'r': '\033[91m', 'bold': '\033[1m', 'dim': '\033[2m',
-     'res': '\033[0m'}
+C = {
+    'b': '\033[94m', 'g': '\033[92m', 'y': '\033[93m', 'r': '\033[91m',
+    'bold': '\033[1m', 'dim': '\033[2m', 'res': '\033[0m', 'cy': '\033[96m'
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  FLOPs helper
@@ -49,6 +55,7 @@ def _compute_gflops(model: nn.Module, imgsz: int, device) -> float:
         print(f"   {C['y']}Warning: FLOPs computation failed ({e}). Storing 0.{C['res']}")
         return 0.0
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  C2f_v2 compatibility shim
 # ─────────────────────────────────────────────────────────────────────────────
@@ -69,6 +76,7 @@ class C2f_v2(nn.Module):
         y = [self.cv0(x), self.cv1(x)]
         y.extend(m(y[-1]) for m in self.m)
         return self.cv2(torch.cat(y, 1))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Main comparator class
@@ -94,10 +102,24 @@ class FoldingComparator:
         self.data_yaml = self._create_temp_yaml()
         self.results = {}
 
+        # ---> NEW: Detect if multiple different YOLO scales/versions are being compared <---
+        detected_variants = set()
+        for p in self.model_paths:
+            # Matches formats like 'yolov8n', 'yolo11m', 'yolov5x', etc.
+            match = re.search(r'(yolo[v]?\d+[a-z])', p.lower())
+            if match:
+                detected_variants.add(match.group(1))
+
+        if len(detected_variants) > 1:
+            self.baseline_variant = "yolov_all"
+        else:
+            self.baseline_variant = os.path.splitext(os.path.basename(self.model_paths[0]))[0]
+
         # ── output dirs ──────────────────────────────────────────────────────
-        self.save_dir = "results_save/plots"
-        self.stats_dir = "results_save/save_statistics_fix"
-        self.report_dir = "results_save/overall_reports"
+        self.save_dir = "../results_save/plots"
+        self.stats_dir = "../results_save/save_statistics_fix"
+        self.report_dir = "../results_save/overall_reports"
+
         os.makedirs(self.save_dir, exist_ok=True)
         os.makedirs(self.stats_dir, exist_ok=True)
         os.makedirs(self.report_dir, exist_ok=True)
@@ -123,21 +145,17 @@ class FoldingComparator:
         return yaml_path
 
     def _get_cache_path(self, model_path):
-        # 1. Clean the path and remove the leading "weights/" folder
         clean_path = model_path.replace('\\', '/')
         if clean_path.startswith("weights/"):
             clean_path = clean_path[8:]
 
-        # 2. Extract the nested directory structure and the filename
         dir_structure = os.path.dirname(clean_path)
         base_name = os.path.basename(clean_path).replace('.pt', '')
         dataset_name = os.path.basename(self.image_dir)
 
-        # 3. Create the exact matching nested directory inside stats_dir
         target_dir = os.path.join(self.stats_dir, dir_structure)
         os.makedirs(target_dir, exist_ok=True)
 
-        # 4. Construct the final JSON path
         return os.path.join(target_dir, f"{base_name}_{dataset_name}_stats.json")
 
     def _preprocess(self, img_path):
@@ -152,19 +170,27 @@ class FoldingComparator:
         img = np.ascontiguousarray(img)
         return torch.from_numpy(img).float() / 255.0
 
-    def _save_overall_txt_report(self, baseline_params):
-        """Generates a single, comprehensive text report grouped by model."""
-        baseline_filename = os.path.basename(self.model_paths[0])
-        baseline_variant = os.path.splitext(baseline_filename)[0]
+    def _get_c2f_status(self):
+        if len(self.model_paths) > 1:
+            path = self.model_paths[1].lower()
+            if 'c2f_out_fold_true' in path or 'c2f_true' in path:
+                return 'c2f_out_fold_true'
+            elif 'c2f_out_fold_false' in path or 'c2f_false' in path:
+                return 'c2f_out_fold_false'
+        return 'c2f_mixed_or_unknown'
 
-        target_dir = os.path.join(self.report_dir, baseline_variant)
+    def _save_overall_txt_report(self, baseline_params, baseline_map95):
+        # Cleaned up to use self.baseline_variant mapping dynamically
+        c2f_status = self._get_c2f_status()
+
+        target_dir = os.path.join(self.report_dir, self.baseline_variant, c2f_status)
         os.makedirs(target_dir, exist_ok=True)
 
         safe_title = "".join(c if c.isalnum() else "_" for c in self.report_title.split('\n')[0])
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        txt_path = os.path.join(target_dir, f"Overall_Report_{safe_title}_{timestamp}.txt")
+        txt_path = os.path.join(target_dir, f"Overall_Report_{c2f_status}_{safe_title}_{timestamp}.txt")
 
-        sep = "=" * 135
+        sep = "=" * 165
         with open(txt_path, 'w', encoding='utf-8') as f:
             f.write(f"{sep}\n")
             f.write(f" MASTER BENCHMARK REPORT\n")
@@ -173,10 +199,10 @@ class FoldingComparator:
             f.write(f"{sep}\n\n")
 
             header = (f"{'Group':<20} | {'Model Name':<25} | {'Params (M)':<10} | {'Saved (M)':<9} | "
-                      f"{'Reduct.%':<9} | {'GFLOPs':<8} | {'mAP50':<7} | {'mAP50-95':<8} | "
+                      f"{'Reduct.%':<9} | {'mAP50-95':<8} | {'% mAP Loss':<10} | {'Loss/1% Reduct':<14} | {'GFLOPs':<8} | "
                       f"{'F1-Score':<8} | {'Anchors'}")
             f.write(f"{header}\n")
-            f.write("-" * 135 + "\n")
+            f.write("-" * 165 + "\n")
 
             for idx, path in enumerate(self.model_paths):
                 data = self.results[path]
@@ -184,14 +210,19 @@ class FoldingComparator:
                 params_m = data['params'] / 1e6
                 saved_m = (baseline_params - data['params']) / 1e6
                 gflops = data.get('gflops', 0.0)
-                reduction = (1 - (data['params'] / baseline_params)) * 100
 
-                red_str = f"-{reduction:.2f}%" if reduction > 0.01 else "-"
+                reduction_pct = (1 - (data['params'] / baseline_params)) * 100
+                map_loss_pct = (1 - (data['mAP50-95'] / baseline_map95)) * 100 if baseline_map95 > 0 else 0.0
+                loss_per_1_pct = (map_loss_pct / reduction_pct) if reduction_pct > 0.01 else 0.0
+
+                red_str = f"-{reduction_pct:.2f}%" if reduction_pct > 0.01 else "-"
                 sav_str = f"{saved_m:.2f}" if saved_m > 0 else "-"
+                map_loss_str = f"{map_loss_pct:.2f}%" if reduction_pct > 0.01 else "-"
+                loss_ratio_str = f"{loss_per_1_pct:.3f}%" if reduction_pct > 0.01 else "-"
 
                 f.write(
                     f"{group_name[:19]:<20} | {data['label'][:24]:<25} | {params_m:<10.2f} | {sav_str:<9} | "
-                    f"{red_str:<9} | {gflops:<8.3f} | {data.get('mAP50', 0.0):.4f}  | {data['mAP50-95']:.4f}   | "
+                    f"{red_str:<9} | {data['mAP50-95']:<8.4f} | {map_loss_str:<10} | {loss_ratio_str:<14} | {gflops:<8.3f} | "
                     f"{data['f1_score']:.4f}   | {data['avg_anchors']:.1f}\n")
 
             f.write(f"\n{sep}\n")
@@ -267,41 +298,52 @@ class FoldingComparator:
             torch.cuda.empty_cache()
 
     # ── console report ────────────────────────────────────────────────────────
-    def generate_report(self):
+    def generate_report(self, generate_plots=True):
         baseline_path = self.model_paths[0]
         baseline_params = self.results[baseline_path]['params']
+        baseline_map95 = self.results[baseline_path]['mAP50-95']
+        baseline_gflops = self.results[baseline_path].get('gflops', 0.0)
 
-        # Save master text report
-        self._save_overall_txt_report(baseline_params)
+        self._save_overall_txt_report(baseline_params, baseline_map95)
 
-        print("\n" + "=" * 155)
+        print("\n" + "=" * 175)
         grp_col = f"{'Group':<18} | " if self.groups else ""
-        header = (f"{grp_col}{'Model Name':<25} | {'Params (M)':<10} | {'Saved (M)':<9} | {'GFLOPs':<8} | "
-                  f"{'Reduct.%':<9} | {'mAP50':<7} | {'mAP50-95':<8} | "
-                  f"{'F1-Score':<8} | {'Avg Conf':<8} | {'Anchors'}")
+        header = (
+            f"{grp_col}{'Model Name':<25} | {'Params(M)':<9} | {'P.Red(%)':<8} | {'GFLOPs':<7} | {'F.Red(%)':<8} | "
+            f"{'mAP@50':<7} | {'mAP@50-95':<9} | {'Density':<8} | {'Loss/1%':<8} | "
+            f"{'F1-Score':<8} | {'Avg Conf'}")
         print(f"{C['bold']}{header}{C['res']}")
-        print("-" * 155)
+        print("-" * 175)
 
         for idx, path in enumerate(self.model_paths):
             data = self.results[path]
             name = data['label']
             params_millions = data['params'] / 1e6
-            saved_m = (baseline_params - data['params']) / 1e6
             gflops = data.get('gflops', 0.0)
-            reduction = (1 - (data['params'] / baseline_params)) * 100
 
-            red_str = f"-{reduction:.2f}%" if reduction > 0.01 else "-"
-            sav_str = f"{saved_m:.2f}" if saved_m > 0 else "-"
+            param_red = (1 - (data['params'] / baseline_params)) * 100
+            flop_red = (1 - (gflops / baseline_gflops)) * 100 if baseline_gflops > 0 else 0.0
+            map_loss_pct = (1 - (data['mAP50-95'] / baseline_map95)) * 100 if baseline_map95 > 0 else 0.0
+            loss_per_1_pct = (map_loss_pct / param_red) if param_red > 0.01 else 0.0
+            density = (data['mAP50-95'] / params_millions) if params_millions > 0 else 0.0
+
+            p_red_str = f"-{param_red:.2f}%" if param_red > 0.01 else "-"
+            f_red_str = f"-{flop_red:.2f}%" if flop_red > 0.01 else "-"
+            loss_ratio_str = f"{loss_per_1_pct:.3f}" if param_red > 0.01 else "-"
+
             display_name = name[:23] + ".." if len(name) > 25 else name
             grp_str = f"{self.groups[idx][:17]:<18} | " if self.groups else ""
 
             print(
-                f"{grp_str}{display_name:<25} | {params_millions:<10.2f} | {sav_str:<9} | {gflops:<8.3f} | "
-                f"{red_str:<9} | {data.get('mAP50', 0.0):.4f}  | {data['mAP50-95']:.4f}   | "
-                f"{data['f1_score']:.4f}   | {data['avg_conf']:.4f}   | {data['avg_anchors']:.1f}")
-        print("=" * 155)
+                f"{grp_str}{display_name:<25} | {params_millions:<9.2f} | {p_red_str:<8} | {gflops:<7.2f} | "
+                f"{f_red_str:<8} | {data.get('mAP50', 0):<7.4f} | {data['mAP50-95']:<9.4f} | {density:<8.4f} | "
+                f"{loss_ratio_str:<8} | {data['f1_score']:<8.4f} | {data['avg_conf']:.4f}")
+        print("=" * 175)
 
-        self._generate_all_plots(baseline_params)
+        if generate_plots:
+            self._generate_all_plots(baseline_params, baseline_map95)
+        else:
+            print(f"   {C['dim']}Skipping plot generation (generate_plots=False). JSON statistics saved.{C['res']}")
 
     # ── shared colour / position helpers ─────────────────────────────────────
     def _build_color_and_positions(self, names):
@@ -344,25 +386,132 @@ class FoldingComparator:
 
     # ── individual plot helpers ───────────────────────────────────────────────
     def _savefig(self, fig, name_suffix, subfolder):
-        """Save figure to a specific subfolder inside plots/<baseline_model>/."""
-        # Basis-Modell Namen aus dem ersten Pfad extrahieren (z.B. 'yolov8m')
-        baseline_filename = os.path.basename(self.model_paths[0])
-        baseline_variant = os.path.splitext(baseline_filename)[0]
+        # Cleaned up to use self.baseline_variant
+        c2f_status = self._get_c2f_status()
 
-        # Neuen verschachtelten Pfad erstellen
-        target_dir = os.path.join(self.save_dir, baseline_variant, subfolder)
+        target_dir = os.path.join(self.save_dir, self.baseline_variant, c2f_status, subfolder)
         os.makedirs(target_dir, exist_ok=True)
 
         safe_title = "".join(c if c.isalnum() else "_" for c in self.report_title.split('\n')[0])
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_name = os.path.join(target_dir, f"{name_suffix}_{safe_title}_{timestamp}.png")
+
+        save_name = os.path.join(target_dir, f"{name_suffix}_{c2f_status}_{safe_title}_{timestamp}.png")
 
         fig.savefig(save_name, dpi=200, bbox_inches='tight')
-        print(f"   {C['dim']}Saved plot: {baseline_variant}/{subfolder}/{os.path.basename(save_name)}{C['res']}")
+        print(
+            f"   {C['dim']}Saved plot: {self.baseline_variant}/{c2f_status}/{subfolder}/{os.path.basename(save_name)}{C['res']}")
         plt.close(fig)
 
+    # ---> NEW: PARETO FRONTIER PLOT <---
+    def _plot_pareto_frontier(self, metric_x='gflops', metric_y='mAP50-95'):
+        fig, ax = plt.subplots(figsize=(10, 7))
+
+        points = []
+        for p in self.model_paths:
+            data = self.results[p]
+            points.append({
+                'label': data['label'],
+                'x': data.get(metric_x, 0.0),
+                'y': data.get(metric_y, 0.0),
+                'group': self.groups[self.model_paths.index(p)] if self.groups else 'Model'
+            })
+
+        points.sort(key=lambda item: item['x'])
+
+        pareto_front = []
+        max_y = -1.0
+        for p in points:
+            if p['y'] > max_y:
+                pareto_front.append(p)
+                max_y = p['y']
+
+        p_x = [p['x'] for p in pareto_front]
+        p_y = [p['y'] for p in pareto_front]
+        all_x = [p['x'] for p in points]
+        all_y = [p['y'] for p in points]
+
+        ax.scatter(all_x, all_y, c='#95a5a6', s=80, alpha=0.6, edgecolors='w', label='Sub-optimal Configurations')
+        ax.plot(p_x, p_y, color='#e74c3c', linestyle='-', linewidth=2, zorder=4, label='Pareto Frontier')
+        ax.scatter(p_x, p_y, c='#e74c3c', s=120, edgecolors='black', zorder=5, label='Pareto Optimal Models')
+
+        for p in pareto_front:
+            short_label = p['label'].replace('Pairing Rate: ', 'PR').replace('No Repair', 'NR').replace('Data Driven',
+                                                                                                        'DD')
+            ax.annotate(short_label, (p['x'], p['y']), xytext=(5, 5), textcoords='offset points', fontsize=8,
+                        fontweight='bold')
+
+        x_label_str = "Compute Cost (GFLOPs)" if metric_x == 'gflops' else "Parameters"
+        ax.set_xlabel(x_label_str, fontsize=11, fontweight='bold')
+        ax.set_ylabel(metric_y, fontsize=11, fontweight='bold')
+        ax.set_title(f"Pareto Efficiency: {x_label_str} vs {metric_y}", fontsize=14, fontweight='bold')
+        ax.grid(True, linestyle='--', alpha=0.5)
+        ax.legend(loc='lower right')
+
+        plt.tight_layout()
+        self._savefig(fig, f"plot_pareto_frontier_{metric_x}", "pareto_plots")
+
+    # ---> NEW: REPAIR EFFICACY DELTA CHART <---
+    def _plot_repair_efficacy_delta(self, baseline_map95):
+        if not self.groups:
+            print(f"   {C['y']}Skipping repair efficacy plot: Requires grouped data.{C['res']}")
+            return
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+        unique_groups = []
+        for g in self.groups:
+            if g not in unique_groups and "Baseline" not in g:
+                unique_groups.append(g)
+
+        no_repair_drops = []
+        repaired_drops = []
+        valid_groups = []
+
+        for g in unique_groups:
+            group_models = [self.model_paths[i] for i, x in enumerate(self.groups) if x == g]
+
+            nr_map, dd_map = None, None
+            for p in group_models:
+                lbl = self.results[p]['label'].lower()
+                if 'no repair' in lbl:
+                    nr_map = self.results[p]['mAP50-95']
+                elif 'data driven' in lbl:
+                    dd_map = self.results[p]['mAP50-95']
+
+            if nr_map is not None and dd_map is not None:
+                no_repair_drops.append((nr_map - baseline_map95) * 100)
+                repaired_drops.append((dd_map - baseline_map95) * 100)
+                valid_groups.append(g.replace('Pairing Rate: ', 'PR '))
+
+        if not valid_groups:
+            return
+
+        x = np.arange(len(valid_groups))
+        width = 0.35
+
+        ax.bar(x - width / 2, no_repair_drops, width, label='No Repair (Raw Damage)', color='#e74c3c',
+               edgecolor='black')
+        ax.bar(x + width / 2, repaired_drops, width, label='Data Driven Recalibration', color='#2ecc71',
+               edgecolor='black')
+
+        ax.axhline(0, color='black', linewidth=1.2)
+        ax.set_ylabel("Absolute mAP@50-95 Change (%)", fontweight='bold')
+        ax.set_title("Repair Efficacy: Structural Damage vs. Recalibration Recovery", fontsize=14, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(valid_groups, fontweight='bold')
+        ax.legend()
+        ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+        for i in range(len(valid_groups)):
+            recovery = repaired_drops[i] - no_repair_drops[i]
+            if recovery > 0:
+                ax.text(i + width / 2, repaired_drops[i] + 0.5, f"+{recovery:.1f}%", ha='center', va='bottom',
+                        fontsize=9, color='green', fontweight='bold')
+
+        plt.tight_layout()
+        self._savefig(fig, "plot_repair_recovery_delta", "bar_charts")
+
     def _draw_sparsity_line(self, ax, metric_key, metric_label, names, baseline_params, color_map):
-        """Helper to draw the sparsity line plot on a given axis."""
         strategy_paths = {}
         for idx, path in enumerate(self.model_paths):
             name = names[idx]
@@ -488,8 +637,7 @@ class FoldingComparator:
             for g, ps in gr.items():
                 if "Baseline" in g: continue
                 bp = max(ps, key=lambda p: self.results[p].get('f1_score', 0))
-                cells2.append(
-                    [g, self.results[bp]['label'], f"{self.results[bp].get('f1_score', 0):.4f}"])
+                cells2.append([g, self.results[bp]['label'], f"{self.results[bp].get('f1_score', 0):.4f}"])
         t2 = ax2.table(cellText=cells2 or [["—", "—", "—"]], colLabels=["Group", "Top Model", "F1-Score"], loc='center',
                        cellLoc='center')
         t2.auto_set_font_size(False)
@@ -508,8 +656,7 @@ class FoldingComparator:
             for g, ps in gr.items():
                 if "Baseline" in g: continue
                 bp = max(ps, key=lambda p: self.results[p].get('mAP50-95', 0))
-                cells3.append(
-                    [g, self.results[bp]['label'], f"{self.results[bp].get('mAP50-95', 0):.4f}"])
+                cells3.append([g, self.results[bp]['label'], f"{self.results[bp].get('mAP50-95', 0):.4f}"])
         t3 = ax3.table(cellText=cells3 or [["—", "—", "—"]], colLabels=["Group", "Top Model", "mAP50-95"], loc='center',
                        cellLoc='center')
         t3.auto_set_font_size(False)
@@ -523,10 +670,65 @@ class FoldingComparator:
         plt.tight_layout()
         self._savefig(fig, "plot_ranking_tables", "tables")
 
-    def _plot_combined_dashboard(self, baseline_params, names, bar_colors, bar_hatches, positions, group_centers,
-                                 group_names_unique, color_map, unique_strategies):
-        """Updated to include line plots and the Saved (M) column."""
-        fig = plt.figure(figsize=(24, 30))
+    def _plot_standalone_table(self, baseline_params, baseline_map95, bar_colors):
+        fig, ax = plt.subplots(figsize=(20, len(self.model_paths) * 0.5 + 2))
+        ax.axis('off')
+
+        columns = ["Group", "Model Name", "Params (M)", "Saved (M)", "Reduct.%", "mAP50-95", "% mAP Loss",
+                   "Loss/1% Reduct", "GFLOPs", "F1-Score"] if self.groups else ["Model Name", "Params (M)", "Saved (M)",
+                                                                                "Reduct.%", "mAP50-95", "% mAP Loss",
+                                                                                "Loss/1% Reduct", "GFLOPs", "F1-Score"]
+        cell_text = []
+        last_g = None
+
+        for idx, path in enumerate(self.model_paths):
+            data = self.results[path]
+            p_m = data['params'] / 1e6
+            s_m = (baseline_params - data['params']) / 1e6
+            gf = data.get('gflops', 0.0)
+
+            reduction_pct = (1 - data['params'] / baseline_params) * 100
+            map_loss_pct = (1 - (data['mAP50-95'] / baseline_map95)) * 100 if baseline_map95 > 0 else 0.0
+            loss_per_1_pct = (map_loss_pct / reduction_pct) if reduction_pct > 0.01 else 0.0
+
+            red_str = f"-{reduction_pct:.2f}%" if reduction_pct > 0.01 else "-"
+            sav_str = f"{s_m:.2f}" if s_m > 0 else "-"
+            map_loss_str = f"{map_loss_pct:.2f}%" if reduction_pct > 0.01 else "-"
+            loss_ratio_str = f"{loss_per_1_pct:.3f}%" if reduction_pct > 0.01 else "-"
+
+            row = []
+            if self.groups:
+                cg = self.groups[idx]
+                row.append("" if cg == last_g else cg.replace("Pairing Rate: ", "PR "))
+                last_g = cg
+
+            row.extend([data['label'], f"{p_m:.2f}", sav_str, red_str, f"{data['mAP50-95']:.4f}",
+                        map_loss_str, loss_ratio_str, f"{gf:.3f}", f"{data.get('f1_score', 0):.4f}"])
+            cell_text.append(row)
+
+        table = ax.table(cellText=cell_text, colLabels=columns, loc='center', cellLoc='center')
+        table.auto_set_font_size(False)
+        table.set_fontsize(11)
+        table.scale(1, 1.8)
+        table.auto_set_column_width(col=list(range(len(columns))))
+
+        name_col = 1 if self.groups else 0
+        for (row, col), cell in table.get_celld().items():
+            if row == 0:
+                cell.set_text_props(weight='bold')
+                cell.set_facecolor('#e0e0e0')
+            elif row > 0:
+                p_i = row - 1
+                if col == name_col:
+                    cell.set_facecolor(mcolors.to_rgba(bar_colors[p_i], alpha=0.25))
+
+        plt.title("Comprehensive Statistics with Normalized Loss", fontweight='bold', fontsize=16, pad=20)
+        plt.tight_layout()
+        self._savefig(fig, "standalone_statistics_table", "tables")
+
+    def _plot_combined_dashboard(self, baseline_params, baseline_map95, names, bar_colors, bar_hatches, positions,
+                                 group_centers, group_names_unique, color_map, unique_strategies):
+        fig = plt.figure(figsize=(26, 30))
         gs = fig.add_gridspec(4, 6, height_ratios=[3.0, 3.0, 3.5, 1.0], hspace=0.4, wspace=0.8)
 
         ax1 = fig.add_subplot(gs[0, :3])
@@ -585,11 +787,10 @@ class FoldingComparator:
         self._draw_sparsity_line(ax_line2, 'mAP50-95', 'mAP@50-95', names, baseline_params, color_map)
 
         # 5. Main Table
-        columns = ["Group", "Model Name", "Params (M)", "Saved (M)", "GFLOPs", "Reduct.%", "mAP50", "mAP50-95",
-                   "F1-Score", "Avg Conf", "Anchors"] if self.groups else ["Model Name", "Params (M)", "Saved (M)",
-                                                                           "GFLOPs", "Reduct.%", "mAP50", "mAP50-95",
-                                                                           "F1-Score", "Avg Conf", "Anchors"]
-
+        columns = ["Group", "Model Name", "Params (M)", "Saved (M)", "Reduct.%", "mAP50-95", "% mAP Loss",
+                   "Loss/1% Reduct", "GFLOPs", "F1-Score"] if self.groups else ["Model Name", "Params (M)", "Saved (M)",
+                                                                                "Reduct.%", "mAP50-95", "% mAP Loss",
+                                                                                "Loss/1% Reduct", "GFLOPs", "F1-Score"]
         cell_text = []
         last_g = None
         m_f1, m_map = {}, {}
@@ -606,7 +807,15 @@ class FoldingComparator:
             p_m = data['params'] / 1e6
             s_m = (baseline_params - data['params']) / 1e6
             gf = data.get('gflops', 0.0)
-            red = (1 - data['params'] / baseline_params) * 100
+
+            reduction_pct = (1 - data['params'] / baseline_params) * 100
+            map_loss_pct = (1 - (data['mAP50-95'] / baseline_map95)) * 100 if baseline_map95 > 0 else 0.0
+            loss_per_1_pct = (map_loss_pct / reduction_pct) if reduction_pct > 0.01 else 0.0
+
+            red_str = f"-{reduction_pct:.2f}%" if reduction_pct > 0.01 else "-"
+            sav_str = f"{s_m:.2f}" if s_m > 0 else "-"
+            map_loss_str = f"{map_loss_pct:.2f}%" if reduction_pct > 0.01 else "-"
+            loss_ratio_str = f"{loss_per_1_pct:.3f}%" if reduction_pct > 0.01 else "-"
 
             row = []
             if self.groups:
@@ -614,10 +823,8 @@ class FoldingComparator:
                 row.append("" if cg == last_g else cg.replace("Pairing Rate: ", "PR "))
                 last_g = cg
 
-            row.extend([data['label'], f"{p_m:.2f}", f"{s_m:.2f}" if s_m > 0 else "-", f"{gf:.3f}",
-                        f"-{red:.2f}%" if red > 0.01 else "-", f"{data.get('mAP50', 0.0):.4f}",
-                        f"{data['mAP50-95']:.4f}", f"{data.get('f1_score', 0):.4f}", f"{data['avg_conf']:.4f}",
-                        f"{data['avg_anchors']:.1f}"])
+            row.extend([data['label'], f"{p_m:.2f}", sav_str, red_str, f"{data['mAP50-95']:.4f}",
+                        map_loss_str, loss_ratio_str, f"{gf:.3f}", f"{data.get('f1_score', 0):.4f}"])
             cell_text.append(row)
 
         table = ax_table.table(cellText=cell_text, colLabels=columns, loc='center', cellLoc='center')
@@ -627,8 +834,8 @@ class FoldingComparator:
         table.auto_set_column_width(col=list(range(len(columns))))
 
         name_col = 1 if self.groups else 0
-        m95_col = 7 if self.groups else 6
-        f1_col = 8 if self.groups else 7
+        m95_col = 5 if self.groups else 4
+        f1_col = 9 if self.groups else 8
 
         for (row, col), cell in table.get_celld().items():
             if row == 0:
@@ -655,8 +862,7 @@ class FoldingComparator:
         s_f1 = sorted(self.model_paths, key=lambda p: self.results[p].get('f1_score', 0), reverse=True)[:5]
         c1 = [[f"#{i + 1}",
                self.groups[self.model_paths.index(p)].replace("Pairing Rate: ", "PR ") if self.groups else "-",
-               self.results[p]['label'], f"{self.results[p].get('f1_score', 0):.4f}"] for i, p in
-              enumerate(s_f1)]
+               self.results[p]['label'], f"{self.results[p].get('f1_score', 0):.4f}"] for i, p in enumerate(s_f1)]
         t1 = ax_rank1.table(cellText=c1, colLabels=["Rank", "Group", "Model", "F1"], loc='center', cellLoc='center')
         t1.auto_set_font_size(False)
         t1.set_fontsize(10)
@@ -670,21 +876,8 @@ class FoldingComparator:
         if self.groups:
             for g, ps in m_f1.items():
                 if "Baseline" not in g: c2.append([g.replace("Pairing Rate: ", "PR "), self.results[
-                                                                                                         max([p for i, p
-                                                                                                              in
-                                                                                                              enumerate(
-                                                                                                                  self.model_paths)
-                                                                                                              if
-                                                                                                              self.groups[
-                                                                                                                  i] == g],
-                                                                                                             key=lambda
-                                                                                                                 p:
-                                                                                                             self.results[
-                                                                                                                 p].get(
-                                                                                                                 'f1_score',
-                                                                                                                 0))][
-                                                                                                         'label'],
-                                                   f"{ps:.4f}"])
+                    max([p for i, p in enumerate(self.model_paths) if self.groups[i] == g],
+                        key=lambda p: self.results[p].get('f1_score', 0))]['label'], f"{ps:.4f}"])
         t2 = ax_rank2.table(cellText=c2 or [["—", "—", "—"]], colLabels=["Group", "Top Model", "F1"], loc='center',
                             cellLoc='center')
         t2.auto_set_font_size(False)
@@ -699,21 +892,8 @@ class FoldingComparator:
         if self.groups:
             for g, ps in m_map.items():
                 if "Baseline" not in g: c3.append([g.replace("Pairing Rate: ", "PR "), self.results[
-                                                                                                         max([p for i, p
-                                                                                                              in
-                                                                                                              enumerate(
-                                                                                                                  self.model_paths)
-                                                                                                              if
-                                                                                                              self.groups[
-                                                                                                                  i] == g],
-                                                                                                             key=lambda
-                                                                                                                 p:
-                                                                                                             self.results[
-                                                                                                                 p].get(
-                                                                                                                 'mAP50-95',
-                                                                                                                 0))][
-                                                                                                         'label'],
-                                                   f"{ps:.4f}"])
+                    max([p for i, p in enumerate(self.model_paths) if self.groups[i] == g],
+                        key=lambda p: self.results[p].get('mAP50-95', 0))]['label'], f"{ps:.4f}"])
         t3 = ax_rank3.table(cellText=c3 or [["—", "—", "—"]], colLabels=["Group", "Top Model", "mAP50-95"],
                             loc='center', cellLoc='center')
         t3.auto_set_font_size(False)
@@ -727,13 +907,15 @@ class FoldingComparator:
         plt.subplots_adjust(left=0.05, right=0.95, bottom=0.05)
         self._savefig(fig, "combined_dashboard", "dashboards")
 
-    def _generate_all_plots(self, baseline_params):
+    # ---> UPDATED GENERATE ALL PLOTS ROUTINE <---
+    def _generate_all_plots(self, baseline_params, baseline_map95):
         names = [self.results[p]['label'] for p in self.model_paths]
         (base_strategies, color_map, bar_colors, bar_hatches, positions, group_centers, group_names_unique,
          unique_strategies) = self._build_color_and_positions(names)
 
         print(f"\n{C['bold']}Generating organized plots → {self.save_dir}/{C['res']}")
 
+        # Standard plots
         self._plot_confidence_boxplot(names, bar_colors, bar_hatches, positions, group_centers, group_names_unique,
                                       color_map, unique_strategies)
         self._plot_map_bar('mAP50', 'mAP@50', names, bar_colors, bar_hatches, positions, group_centers,
@@ -745,8 +927,19 @@ class FoldingComparator:
         self._plot_sparsity_vs_accuracy('mAP50-95', 'mAP@50-95', names, baseline_params, color_map, bar_colors,
                                         unique_strategies)
         self._plot_ranking_tables(names, baseline_params)
-        self._plot_combined_dashboard(baseline_params, names, bar_colors, bar_hatches, positions, group_centers,
-                                      group_names_unique, color_map, unique_strategies)
+        self._plot_standalone_table(baseline_params, baseline_map95, bar_colors)
+
+        # New analytical plots
+        print(f"   {C['dim']}Generating Pareto Frontiers...{C['res']}")
+        self._plot_pareto_frontier(metric_x='gflops', metric_y='mAP50-95')
+        self._plot_pareto_frontier(metric_x='params', metric_y='mAP50-95')
+
+        print(f"   {C['dim']}Generating Repair Efficacy Analysis...{C['res']}")
+        self._plot_repair_efficacy_delta(baseline_map95)
+
+        # Dashboard compilation
+        self._plot_combined_dashboard(baseline_params, baseline_map95, names, bar_colors, bar_hatches, positions,
+                                      group_centers, group_names_unique, color_map, unique_strategies)
 
     def cleanup(self):
         if os.path.exists(self.data_yaml):
@@ -756,58 +949,122 @@ class FoldingComparator:
 # ─────────────────────────────────────────────────────────────────────────────
 #  EXECUTION
 # ─────────────────────────────────────────────────────────────────────────────
+def _run_directory_statistics_calculation(target_dir, test_ds):
+    print(f"\n{C['bold']}{C['cy']}============================================================{C['res']}")
+    print(f"{C['bold']}{C['cy']}STARTING BATCH DIRECTORY CALCULATION: {target_dir}{C['res']}")
+    print(f"{C['bold']}{C['cy']}============================================================{C['res']}")
+
+    if not os.path.exists(target_dir):
+        print(f"{C['r']}Error: Directory '{target_dir}' does not exist!{C['res']}")
+        return
+
+    pt_files = []
+    for root, _, files in os.walk(target_dir):
+        for file in files:
+            if file.endswith('.pt'):
+                pt_files.append(os.path.join(root, file))
+
+    if not pt_files:
+        print(f"{C['y']}No .pt model checkpoints found in '{target_dir}'.{C['res']}")
+        return
+
+    print(f"{C['g']}Discovered {len(pt_files)} total model checkpoints.{C['res']}\n")
+
+    for idx, pt_path in enumerate(pt_files, start=1):
+        model_filename = os.path.basename(pt_path)
+        print(f"\n{C['bold']}[{idx}/{len(pt_files)}] Processing: {C['b']}{model_filename}{C['res']}")
+        print(f"{C['dim']}Path: {pt_path}{C['res']}")
+
+        comp = FoldingComparator(
+            model_paths=[pt_path],
+            image_dir=test_ds,
+            model_labels=[model_filename],
+            report_title=f"Batch-Calc: {model_filename}",
+            batch_size=16,
+            groups=[model_filename]
+        )
+
+        try:
+            comp.run_all_benchmarks()
+            comp.generate_report(generate_plots=False)
+        except Exception as e:
+            print(f"   {C['r']}Error processing statistics for {model_filename}: {e}{C['res']}")
+        finally:
+            comp.cleanup()
+            torch.cuda.empty_cache()
+
+    print(f"\n{C['bold']}{C['g']}>>> Batch directory calculation complete! <<<{C['res']}")
+
 if __name__ == "__main__":
 
+    BATCH_CALCULATE_DIRECTORY_STATS = False
+    TARGET_STATS_DIRECTORY = "weights/yolov8/yolov8m"
+    IMG_PATH = r"../coco/images/val2017"
+
+    if BATCH_CALCULATE_DIRECTORY_STATS:
+        _run_directory_statistics_calculation(
+            target_dir=TARGET_STATS_DIRECTORY,
+            test_ds=IMG_PATH
+        )
+        exit(0)
+
+    import re
+
+    BASELINE_MODEL = "weights/yolov8/yolov8m/yolov8m.pt"
+
     MODELS_TO_COMPARE = [
-        "weights/yolov8/yolov8m/yolov8m.pt",
+        "weights/yolov8/yolov8m/yolov8m.pt",  # Baseline
 
-        "weights/yolov8/yolov8m/no_repair/0.1/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.1_c2f_true_no_repair.pt",
-        "weights/yolov8/yolov8m/data_driven_repair/0.1/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.1_c2f_true_data_driven_repair_calib5000.pt",
-        "weights/yolov8/yolov8m/data_free_repair/0.1/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.1_c2f_true_data_free_repair.pt",
+        # PR 0.1 Triplet
+        "weights/yolov8/yolov8m/prune_without_repair/0.1/prune_yolov8_medium_conv4_to_conv8_pr0.1_no_repair.pt",
+        "weights/yolov8/yolov8m/prune_with_repair/0.1/prune_yolov8_medium_conv4_to_conv8_pr0.1_with_repair.pt",
+        "weights/yolov8/yolov8m/prune_with_backprop/0.1/prune_yolov8_medium_conv4_to_conv8_pr0.1_with_backprop.pt",
 
-        "weights/yolov8/yolov8m/no_repair/0.2/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.2_c2f_true_no_repair.pt",
-        "weights/yolov8/yolov8m/data_driven_repair/0.2/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.2_c2f_true_data_driven_repair_calib5000.pt",
-        "weights/yolov8/yolov8m/data_free_repair/0.2/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.2_c2f_true_data_free_repair.pt",
+        # PR 0.2 Triplet
+        "weights/yolov8/yolov8m/prune_without_repair/0.2/prune_yolov8_medium_conv4_to_conv8_pr0.2_no_repair.pt",
+        "weights/yolov8/yolov8m/prune_with_repair/0.2/prune_yolov8_medium_conv4_to_conv8_pr0.2_with_repair.pt",
+        "weights/yolov8/yolov8m/prune_with_backprop/0.2/prune_yolov8_medium_conv4_to_conv8_pr0.2_with_backprop.pt",
 
-        "weights/yolov8/yolov8m/no_repair/0.3/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.3_c2f_true_no_repair.pt",
-        "weights/yolov8/yolov8m/data_driven_repair/0.3/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.3_c2f_true_data_driven_repair_calib5000.pt",
-        "weights/yolov8/yolov8m/data_free_repair/0.3/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.3_c2f_true_data_free_repair.pt"
+        # PR 0.3 Triplet
+        "weights/yolov8/yolov8m/prune_without_repair/0.3/prune_yolov8_medium_conv4_to_conv8_pr0.3_no_repair.pt",
+        "weights/yolov8/yolov8m/prune_with_repair/0.3/prune_yolov8_medium_conv4_to_conv8_pr0.3_with_repair.pt",
+        "weights/yolov8/yolov8m/prune_with_backprop/0.3/prune_yolov8_medium_conv4_to_conv8_pr0.3_with_backprop.pt",
     ]
 
-    # Dynamically extract baseline information
-    baseline_filename = os.path.basename(MODELS_TO_COMPARE[0])
-    baseline_variant = os.path.splitext(baseline_filename)[0]
-    first_folded_path = MODELS_TO_COMPARE[1]
-    extracted_layers = os.path.basename(first_folded_path).split('_pr')[0].replace('yolo_', '')
     CUSTOM_LABELS = [
         "Baseline",
-        "PR 0.1: No Repair",
-        "PR 0.1: Data Driven",
-        "PR 0.1: Data Free",
-        "PR 0.2: No Repair",
-        "PR 0.2: Data Driven",
-        "PR 0.2: Data Free",
-        "PR 0.3: No Repair",
-        "PR 0.3: Data Driven",
-        "PR 0.3: Data Free",
+        "No-Repair 0.1", "Repair 0.1", "Backprop 0.1",
+        "No-Repair 0.2", "Repair 0.2", "Backprop 0.2",
+        "No-Repair 0.3", "Repair 0.3", "Backprop 0.3",
     ]
 
     GROUPS = [
         "Baseline",
-        "Pairing Rate: 0.1",
-        "Pairing Rate: 0.1",
-        "Pairing Rate: 0.1",
-        "Pairing Rate: 0.2",
-        "Pairing Rate: 0.2",
-        "Pairing Rate: 0.2",
-        "Pairing Rate: 0.3",
-        "Pairing Rate: 0.3",
-        "Pairing Rate: 0.3"
+        "PR 0.1 Strategy", "PR 0.1 Strategy", "PR 0.1 Strategy",
+        "PR 0.2 Strategy", "PR 0.2 Strategy", "PR 0.2 Strategy",
+        "PR 0.3 Strategy", "PR 0.3 Strategy", "PR 0.3 Strategy",
     ]
 
-    REPORT_TITLE = f"{baseline_variant} {extracted_layers} Full comparison"
-    IMG_PATH = r"coco/images/val2017"
 
+
+
+
+    # Logic to handle variant identification
+    variants_in_paths = set()
+    for p in MODELS_TO_COMPARE:
+        match = re.search(r'(yolov8[nsml])', p.lower())
+        if match:
+            variants_in_paths.add(match.group(1))
+
+    # Set reporting context
+    if len(variants_in_paths) > 1:
+        baseline_variant = "yolov8_multi_scale"
+        extracted_layers = "conv4_to_conv8"
+    else:
+        extracted_layers = "conv4_to_conv8"
+
+    extracted_layers = "Target Scope vs. Model Capacity (PR 0.1 to 0.3)"
+    REPORT_TITLE = "RQ2.1: Pruning VS Folding"
     comp = FoldingComparator(
         model_paths=MODELS_TO_COMPARE,
         image_dir=IMG_PATH,
@@ -819,6 +1076,6 @@ if __name__ == "__main__":
 
     try:
         comp.run_all_benchmarks()
-        comp.generate_report()
+        comp.generate_report(generate_plots=False)
     finally:
         comp.cleanup()

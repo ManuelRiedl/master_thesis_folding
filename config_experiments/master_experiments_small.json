@@ -1,0 +1,10 @@
+[
+    {
+     "weights_path": "weights/yolov8/yolov8m/yolov8m.pt",
+    "config": "config_folding/yolov8_m/yolov8_medium_conv4_to_conv8.json",
+    "pairing_rates": [0.05,0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45,0.5,0.55,0.6,0.65,0.7],
+    "calib_images": [100,500,1000,5000],
+    "repair_mode": ["NO_REPAIR", "REPAIR"],
+    "fold_c2f_output": [true]
+  }
+]
