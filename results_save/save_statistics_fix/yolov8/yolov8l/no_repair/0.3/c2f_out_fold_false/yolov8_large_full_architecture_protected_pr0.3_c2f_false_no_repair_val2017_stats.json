@@ -1,0 +1,15 @@
+{
+  "label": "yolov8_large_full_architecture_protected_pr0.3_c2f_false_no_repair.pt",
+  "params": 27425013,
+  "gflops": 112.216176,
+  "mAP50": 0.03325426031489779,
+  "mAP50-95": 0.019180710691972403,
+  "precision": 0.1793838573838306,
+  "recall": 0.06636290907676767,
+  "f1_score": 0.09688335962403707,
+  "avg_conf": 0.3164624869823456,
+  "confs_list": [
+    0.3164624869823456
+  ],
+  "avg_anchors": 0.0004154549231408392
+}

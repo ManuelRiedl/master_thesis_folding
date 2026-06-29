@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.ticker as mtick
 
 # =====================================================================
 # 1. CONFIGURATION & EXPERIMENT SETUP
@@ -12,70 +13,81 @@ import numpy as np
 DATASET_NAME = "val2017"
 STATS_DIR = "../results_save/save_statistics_fix"
 SAVE_DIR_ROOT = "../results_save/plots"
+REPORT_TITLE = "YOLOv8m Backbone Compression: Folding vs. Pruning"
 
 # --- The first entry is always treated as the BASELINE ---
-BASELINE_MODEL = "weights/yolov8/yolov8m/yolov8m.pt"
-
-# =====================================================================
-# 1. STRATEGY COMPARISON: No-Repair vs. Repair vs. DD-Repair vs. Backprop
-# =====================================================================
-
 BASELINE_MODEL = "weights/yolov8/yolov8m/yolov8m.pt"
 
 MODELS_TO_COMPARE = [
     BASELINE_MODEL,
 
-    # --- PR 0.1 Quad ---
-    "weights/yolov8/yolov8m/prune_without_repair/0.1/prune_yolov8_medium_conv4_to_conv8_pr0.1_no_repair.pt",
-    "weights/yolov8/yolov8m/prune_with_repair/0.1/prune_yolov8_medium_conv4_to_conv8_pr0.1_with_repair.pt",
-    "weights/yolov8/yolov8m/data_driven_repair/0.1/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.1_c2f_true_data_driven_repair_calib5000.pt",
+    # --- STATIC ASSIGNMENT (Flat Rate Folding: 0.05 to 0.30) ---
+    "weights/yolov8/yolov8m/data_driven_repair/0.05/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_pr0.05_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/0.1/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_pr0.1_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/0.15/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_pr0.15_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/0.2/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_pr0.2_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/0.25/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_pr0.25_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/0.3/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_pr0.3_c2f_true_data_driven_repair_calib5000.pt",
+
+    # --- STATIC PRUNING (Traditional Backprop Pruning: 0.1 to 0.3) ---
     "weights/yolov8/yolov8m/prune_with_backprop/0.1/prune_yolov8_medium_conv4_to_conv8_pr0.1_with_backprop.pt",
-
-    # --- PR 0.2 Quad ---
-    "weights/yolov8/yolov8m/prune_without_repair/0.2/prune_yolov8_medium_conv4_to_conv8_pr0.2_no_repair.pt",
-    "weights/yolov8/yolov8m/prune_with_repair/0.2/prune_yolov8_medium_conv4_to_conv8_pr0.2_with_repair.pt",
-    "weights/yolov8/yolov8m/data_driven_repair/0.2/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.2_c2f_true_data_driven_repair_calib5000.pt",
     "weights/yolov8/yolov8m/prune_with_backprop/0.2/prune_yolov8_medium_conv4_to_conv8_pr0.2_with_backprop.pt",
-
-    # --- PR 0.3 Quad ---
-    "weights/yolov8/yolov8m/prune_without_repair/0.3/prune_yolov8_medium_conv4_to_conv8_pr0.3_no_repair.pt",
-    "weights/yolov8/yolov8m/prune_with_repair/0.3/prune_yolov8_medium_conv4_to_conv8_pr0.3_with_repair.pt",
-    "weights/yolov8/yolov8m/data_driven_repair/0.3/c2f_out_fold_true/yolo_conv4_to_conv8_pr0.3_c2f_true_data_driven_repair_calib5000.pt",
     "weights/yolov8/yolov8m/prune_with_backprop/0.3/prune_yolov8_medium_conv4_to_conv8_pr0.3_with_backprop.pt",
+
+    # --- AUTO ALLOCATOR (Smart Folding) ---
+    "weights/yolov8/yolov8m/data_driven_repair/auto/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_auto_target_0.0_487710_prauto_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/auto/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_auto_target_0.1_1219276_prauto_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/auto/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_auto_target_0.1_1706987_prauto_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/auto/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_auto_target_0.1_2438553_prauto_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/auto/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_auto_target_0.1_2926264_prauto_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/auto/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_auto_target_0.1_3657830_prauto_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/auto/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_auto_target_0.2_4877107_prauto_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/auto/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_auto_target_0.2_5364817_prauto_c2f_true_data_driven_repair_calib5000.pt",
+    "weights/yolov8/yolov8m/data_driven_repair/auto/c2f_out_fold_true/yolov8_medium_conv4_to_conv8_auto_target_0.2_6096384_prauto_c2f_true_data_driven_repair_calib5000.pt"
 ]
 
-# We maintain 13 total items (Baseline + 12 variants)
-GROUPS = (
-        ["Baseline"] +
-        ["No Repair Strategy"] * 3 +
-        ["BN-Repair Strategy"] * 3 +
-        ["Data-Driven Repair (Calib 5000)"] * 3 +
-        ["Backprop Strategy"] * 3
-)
+# Total items: 1 (Baseline) + 6 (Static Fold) + 3 (Static Prune) + 9 (Auto Fold) = 19
+GROUPS = ["Baseline"] + ["Static Assignment (Folding)"] * 6 + ["Static Pruning (Backprop)"] * 3 + [
+    "Auto Allocator (Folding)"] * 9
 
 GROUP_COLORS = {
-    "No Repair Strategy": "#95a5a6",  # Grey
-    "BN-Repair Strategy": "#3498db",  # Blue
-    "Data-Driven Repair (Calib 5000)": "#e67e22",  # Orange
-    "Backprop Strategy": "#2ecc71",  # Green
+    "Static Assignment (Folding)": "#3498db",  # Blue
+    "Static Pruning (Backprop)": "#2ecc71",  # Green
+    "Auto Allocator (Folding)": "#e67e22",  # Orange
 }
 
 GROUP_MARKERS = {
-    "No Repair Strategy": "o",
-    "BN-Repair Strategy": "s",
-    "Data-Driven Repair (Calib 5000)": "D",
-    "Backprop Strategy": "^",
+    "Static Assignment (Folding)": "o",
+    "Static Pruning (Backprop)": "^",
+    "Auto Allocator (Folding)": "s",
 }
-BACKGROUND_GROUPS: set = set()
 
-REPORT_TITLE = "YOLOv8m Backbone Folding - Pruning VS Folding"
+BACKGROUND_GROUPS: set = set()
 
 
 # =====================================================================
 # 2. HELPER FUNCTIONS
 # =====================================================================
 
+def _extract_label(filepath):
+    """Gracefully extracts either the static PR or the Auto params removed."""
+    if "auto_target" in filepath:
+        # Pulls the parameter drop count out of the filename (e.g., 1219276)
+        match = re.search(r'auto_target_[0-9.]+_([0-9]+)_prauto', filepath)
+        if match:
+            dropped_m = int(match.group(1)) / 1e6
+            return f"Auto (-{dropped_m:.1f}M)"
+        return "Auto"
+
+    match = re.search(r'pr([0-9.]+)', filepath)
+    return match.group(1) if match else "Unk"
+
+
 def _extract_pr(filepath):
+    auto_match = re.search(r'auto_target_([0-9.]+)', filepath)
+    if auto_match:
+        return float(auto_match.group(1))
+
     match = re.search(r'pr([0-9.]+)', filepath)
     return float(match.group(1)) if match else 0.0
 
@@ -146,13 +158,12 @@ def _load_data():
             if alt:
                 print(f"[WARNING] Not found (alt):     {alt}")
 
+    # Fallback mock data if you haven't generated the stats yet
     if still_missing:
-        print("\n[INFO] Falling back to mock data for still-missing entries.\n")
-        mock_map = {0.0: 0.524, 0.05: 0.44, 0.1: 0.38, 0.15: 0.31,
-                    0.2: 0.22, 0.25: 0.16, 0.3: 0.10, 0.4: 0.07, 0.5: 0.04}
-        mock_map_r = {0.05: 0.50, 0.1: 0.47, 0.15: 0.44, 0.2: 0.41,
-                      0.25: 0.38, 0.3: 0.35, 0.4: 0.30, 0.5: 0.25}
-        mock_params = 43_700_000
+        print("\n[INFO] Falling back to mock data for missing entries.\n")
+        mock_map = {0.0: 0.524, 0.05: 0.50, 0.1: 0.47, 0.15: 0.44,
+                    0.2: 0.41, 0.25: 0.38, 0.3: 0.35}
+        mock_params = 25_800_000
 
         if BASELINE_MODEL not in results:
             results[BASELINE_MODEL] = {'mAP50-95': mock_map[0.0], 'params': mock_params}
@@ -161,10 +172,26 @@ def _load_data():
             if path == BASELINE_MODEL:
                 continue
             pr = _extract_pr(path)
-            is_repair = 'data_driven' in path.lower()
+
+            if "auto_target" in path:
+                auto_params_match = re.search(r'auto_target_[0-9.]+_([0-9]+)_prauto', path)
+                if auto_params_match:
+                    params_dropped = int(auto_params_match.group(1))
+                    final_params = mock_params - params_dropped
+                    final_map = mock_map.get(pr, 0.4) + 0.015
+                else:
+                    final_params = int(mock_params * (1 - pr))
+                    final_map = mock_map.get(pr, 0.3)
+            elif "prune_with_backprop" in path:
+                final_params = int(mock_params * (1 - pr))
+                final_map = mock_map.get(pr, 0.3) + 0.025  # Slight mock bump to distinguish from static
+            else:
+                final_params = int(mock_params * (1 - pr))
+                final_map = mock_map.get(pr, 0.3)
+
             results[path] = {
-                'mAP50-95': mock_map_r.get(pr, 0.3) if is_repair else mock_map.get(pr, 0.1),
-                'params': int(mock_params * (1 - pr * 0.6)),
+                'mAP50-95': final_map,
+                'params': final_params,
             }
 
     return results
@@ -190,10 +217,6 @@ def _save_plot(fig, title_suffix):
 # 3. PLOTTING
 # =====================================================================
 
-_AUTO_PALETTE = ["#3498db", "#e67e22", "#9b59b6", "#1abc9c", "#f39c12", "#e91e63"]
-_AUTO_MARKERS = ["D", "^", "v", "P", "X", "*"]
-
-
 def plot_line_chart():
     results = _load_data()
 
@@ -202,36 +225,23 @@ def plot_line_chart():
 
     # ── Collect per-group data ────────────────────────────────────────────
     group_data = {}
-    pr_to_sparsity = {0.0: 0.0}
 
     for model_path, group in zip(MODELS_TO_COMPARE, GROUPS):
+        if group == "Baseline": continue
+
         if group not in group_data:
-            group_data[group] = {"pr": [], "map": [], "sparsity": []}
+            group_data[group] = {"sparsity": [], "map": [], "label": []}
 
         entry = results.get(model_path, {})
         mAP = entry.get('mAP50-95', 0.0)
         params = entry.get('params', base_params)
 
-        pr = _extract_pr(model_path)
+        # Calculate exact parameter reduction (Sparsity)
         sparsity = (1.0 - params / base_params) * 100.0
-        pr_to_sparsity[pr] = sparsity
 
-        group_data[group]["pr"].append(pr)
-        group_data[group]["map"].append(mAP)
         group_data[group]["sparsity"].append(sparsity)
-
-    # ── Build sorted X-axis tick list ─────────────────────────────────────
-    sorted_prs = sorted(pr_to_sparsity.keys())
-    x_pos = list(range(len(sorted_prs)))
-    pr_to_xpos = {pr: i for i, pr in enumerate(sorted_prs)}
-
-    x_labels = []
-    for pr in sorted_prs:
-        sp = pr_to_sparsity[pr]
-        if pr == 0.0:
-            x_labels.append(f"Baseline\n({sp:.1f}%)")
-        else:
-            x_labels.append(f"{pr}\n({sp:.1f}%)")
+        group_data[group]["map"].append(mAP)
+        group_data[group]["label"].append(_extract_label(model_path))
 
     # ── Figure setup ──────────────────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -252,108 +262,89 @@ def plot_line_chart():
         label=f"Baseline ({base_map:.4f})",
     )
 
-    auto_color_idx = 0
-    auto_marker_idx = 0
-    _pending_labels = []  # (xi, yi, text, color, is_bg)
+    _pending_labels = []
 
     def _draw_group(group, gdata, is_bg):
-        nonlocal auto_color_idx, auto_marker_idx
+        color = GROUP_COLORS.get(group, "#000000")
+        marker = GROUP_MARKERS.get(group, "o")
 
-        color = GROUP_COLORS.get(group, _AUTO_PALETTE[auto_color_idx % len(_AUTO_PALETTE)])
-        marker = GROUP_MARKERS.get(group, _AUTO_MARKERS[auto_marker_idx % len(_AUTO_MARKERS)])
-        if group not in GROUP_COLORS:  auto_color_idx += 1
-        if group not in GROUP_MARKERS: auto_marker_idx += 1
-
-        all_prs = [0.0] + gdata["pr"]
+        # Anchor everything at the baseline (0% sparsity)
+        all_sparsities = [0.0] + gdata["sparsity"]
         all_maps = [base_map] + gdata["map"]
+        all_labels = [""] + gdata["label"]
 
-        order = np.argsort(all_prs)
-        prs_sorted = np.array(all_prs)[order]
-        maps_sorted = np.array(all_maps)[order]
-        xs = [pr_to_xpos[p] for p in prs_sorted]
+        # Sort values by sparsity so the line draws cleanly left-to-right
+        order = np.argsort(all_sparsities)
+        xs = np.array(all_sparsities)[order]
+        ys = np.array(all_maps)[order]
+        ls = np.array(all_labels)[order]
 
-        if is_bg:
-            ax.plot(
-                xs, maps_sorted,
-                marker=marker,
-                color=color,
-                linewidth=1.4,
-                markersize=6,
-                markeredgecolor='none',
-                alpha=0.35,
-                linestyle='--',
-                label=f"{group} (bg)",
-                zorder=2,
-            )
-        else:
-            ax.plot(
-                xs, maps_sorted,
-                marker=marker,
-                color=color,
-                linewidth=2.5,
-                markersize=8,
-                markeredgecolor='white',
-                markeredgewidth=1.2,
-                label=group,
-                zorder=3,
-            )
+        ax.plot(
+            xs, ys,
+            marker=marker,
+            color=color,
+            linewidth=2.5,
+            markersize=8,
+            markeredgecolor='white',
+            markeredgewidth=1.2,
+            label=group,
+            zorder=3,
+        )
 
-        for xi, yi in zip(xs[1:], maps_sorted[1:]):
-            _pending_labels.append((xi, yi, f"{yi:.3f}", color, is_bg))
+        # Skip the baseline point [0] so we don't overlap labels at 0%
+        for xi, yi, text_label in zip(xs[1:], ys[1:], ls[1:]):
+            bin_x = round(xi, 1)
+            # Use the extracted label (e.g. 0.1, 0.2, or Auto)
+            display_text = f"{text_label}"
+            _pending_labels.append((bin_x, xi, yi, display_text, color, is_bg))
 
+    # Draw the paths
     for group, gdata in group_data.items():
-        if group in BACKGROUND_GROUPS:
-            _draw_group(group, gdata, is_bg=True)
+        _draw_group(group, gdata, is_bg=False)
 
-    for group, gdata in group_data.items():
-        if group not in BACKGROUND_GROUPS:
-            _draw_group(group, gdata, is_bg=False)
-
-    # ── Stack overlapping annotations by x-position ──────────────────────
+    # ── Stack overlapping annotations vertically ──────────────────────
     from collections import defaultdict
     _by_x = defaultdict(list)
 
-    # [FIXED] Unpacking exactly 5 values:
-    for xi, yi, txt, col, is_bg in _pending_labels:
-        _by_x[xi].append((yi, txt, col, is_bg))
+    for bin_x, exact_xi, yi, txt, col, is_bg in _pending_labels:
+        _by_x[bin_x].append((exact_xi, yi, txt, col, is_bg))
 
     _LINE_HEIGHT_PTS = 11
-    for xi, items in _by_x.items():
-        # [FIXED] Sort descending by y (index 0) and use is_bg (index 3) to put bg items last
-        items_sorted = sorted(items, key=lambda t: (t[3], -t[0]))
+    for bin_x, items in _by_x.items():
+        # Sort descending by Y so highest mAP is at the top of the stack
+        items_sorted = sorted(items, key=lambda t: -t[1])
 
-        # [FIXED] Correctly unpack the 4 tuple elements stored in items_sorted
-        for stack_idx, (yi, txt, col, is_bg) in enumerate(items_sorted):
+        for stack_idx, (exact_xi, yi, txt, col, is_bg) in enumerate(items_sorted):
             y_offset = 9 + stack_idx * _LINE_HEIGHT_PTS
             ax.annotate(
                 txt,
-                xy=(xi, yi),
+                xy=(exact_xi, yi),
                 xytext=(0, y_offset),
                 textcoords="offset points",
                 ha="center",
                 fontsize=7.5,
                 color=col,
                 fontweight="bold",
-                alpha=0.45 if is_bg else 1.0,
+                alpha=1.0,
             )
 
-    ax.set_xticks(x_pos)
-    ax.set_xticklabels(x_labels, fontsize=9.5)
-    ax.set_xlabel("Folding Ratio & Parameter Reduction", labelpad=12,
-                  fontsize=12, fontweight='bold', color='#333333')
+    # ── X-Axis Formatting ──────────────────────────────────────────────────
+    ax.xaxis.set_major_formatter(mtick.PercentFormatter())
+    ax.set_xlabel("Parameter Reduction (Sparsity)", labelpad=12, fontsize=12, fontweight='bold', color='#333333')
     ax.set_ylabel("$mAP_{50-95}$", fontsize=12, fontweight='bold', color='#333333')
     ax.set_title(REPORT_TITLE, fontsize=14, fontweight='bold', pad=16, color='#222222')
     ax.grid(True, linestyle=':', alpha=0.6, color='#cccccc', zorder=0)
 
+    # Automatically set Y-Limits to frame the data tightly
     all_map_vals = [base_map] + [v for g in group_data.values() for v in g["map"]]
     ax.set_ylim(max(0.0, min(all_map_vals) - 0.03), max(all_map_vals) + 0.04)
 
-    legend = ax.legend(fontsize=10, framealpha=0.9, edgecolor='#cccccc', loc='upper right')
+    legend = ax.legend(fontsize=10, framealpha=0.9, edgecolor='#cccccc', loc='lower left')
     for text in legend.get_texts():
         text.set_color('#333333')
 
     plt.tight_layout()
-    _save_plot(fig, "rq1_repair_efficacy_line")
+    _save_plot(fig, "rq3_foldingstatic_foldingauto_vs_pruning")
 
 
 # =====================================================================
