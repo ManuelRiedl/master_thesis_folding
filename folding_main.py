@@ -107,7 +107,7 @@ def save_model(model, yolo_obj, repair_mode, pairing_rate, config_path, fold_c2f
     # 1. Map internal repair strings to exact directory folder paths
     mode_dir_map = {
         "NO_REPAIR": "no_repair",
-        "APPROX_REPAIR": "data_free_repair",
+        "APPROX_REPAIR": "data_free_repair_old",
         "REPAIR": "data_driven_repair"
     }
     repair_dir = mode_dir_map.get(repair_mode.upper(), "unknown_repair")
